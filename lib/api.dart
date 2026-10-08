@@ -89,6 +89,63 @@ class ChorusApi {
   /// 重新生成最后一轮回复。
   Stream<TurnEvent> regenerate() => _streamPost('/api/regenerate', {});
 
+  /// 全部设置。
+  Future<Map<String, dynamic>> getSettings() async {
+    final response = await _client.get(_uri('/api/settings'), headers: _headers);
+    if (response.statusCode != 200) _fail(response);
+    return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  /// 改一个或几个设置，只更新给的键。
+  Future<void> updateSettings(Map<String, dynamic> values) async {
+    final response = await _client.post(
+      _uri('/api/settings'),
+      headers: _headers,
+      body: jsonEncode(values),
+    );
+    if (response.statusCode != 200) _fail(response);
+  }
+
+  /// 可选的模型后端，不含密钥。
+  Future<List<Backend>> backends() async {
+    final response = await _client.get(_uri('/api/backends'), headers: _headers);
+    if (response.statusCode != 200) _fail(response);
+    final list = jsonDecode(utf8.decode(response.bodyBytes)) as List;
+    return [for (final item in list) Backend.fromJson(item as Map<String, dynamic>)];
+  }
+
+  /// 关于主人的事实文本。
+  Future<String> facts() async {
+    final response = await _client.get(_uri('/api/facts'), headers: _headers);
+    if (response.statusCode != 200) _fail(response);
+    final body = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    return (body['facts'] as String?) ?? '';
+  }
+
+  /// 清空全部群聊记录。
+  Future<void> clearMessages() async {
+    final response = await _client.post(_uri('/api/messages/clear'), headers: _headers, body: '{}');
+    if (response.statusCode != 200) _fail(response);
+  }
+
+  /// 全部历史记录。
+  Future<List<ChatMessage>> history() async {
+    final response = await _client.get(_uri('/api/history'), headers: _headers);
+    if (response.statusCode != 200) _fail(response);
+    final list = jsonDecode(utf8.decode(response.bodyBytes)) as List;
+    return [for (final item in list) ChatMessage.fromJson(item as Map<String, dynamic>)];
+  }
+
+  /// 上报一条采集信号。ts 是采集发生的时间，不是上报时间。
+  Future<void> signal(String ts, String kind, Map<String, dynamic> data) async {
+    final response = await _client.post(
+      _uri('/api/signal'),
+      headers: _headers,
+      body: jsonEncode({'ts': ts, 'kind': kind, 'data': data}),
+    );
+    if (response.statusCode != 200) _fail(response);
+  }
+
   Stream<TurnEvent> _streamPost(String path, Map<String, dynamic> body) async* {
     final request = http.Request('POST', _uri(path))
       ..headers.addAll(_headers)

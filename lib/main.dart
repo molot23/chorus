@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'api.dart';
 import 'chat_page.dart';
+import 'collector.dart';
+import 'server_settings_page.dart';
 import 'settings_page.dart';
 
 void main() {
@@ -33,17 +35,22 @@ class Home extends StatefulWidget {
 
 class _HomeState extends State<Home> {
   final _settings = Settings();
+  Collector? _collector;
   var _ready = false;
 
   @override
   void initState() {
     super.initState();
     _settings.load().then((_) {
-      if (mounted) setState(() => _ready = true);
+      if (!mounted) return;
+      setState(() => _ready = true);
+      if (_settings.isConfigured) {
+        _collector = Collector(_settings)..start();
+      }
     });
   }
 
-  void _openSettings() {
+  void _openConnection() {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SettingsPage(
@@ -62,6 +69,12 @@ class _HomeState extends State<Home> {
     if (!_settings.isConfigured) {
       return SettingsPage(settings: _settings, onSaved: () => setState(() {}));
     }
-    return ChatPage(api: ChorusApi(_settings), onOpenSettings: _openSettings);
+    return ChatPage(
+      api: ChorusApi(_settings),
+      onOpenSettings: (context) => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => ServerSettingsPage(api: ChorusApi(_settings))),
+      ),
+      onOpenConnection: _openConnection,
+    );
   }
 }

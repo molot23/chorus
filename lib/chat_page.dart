@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import 'api.dart';
@@ -20,10 +22,16 @@ Color colorOf(String name) =>
     _roleColors[name] ?? _fallbackColors[name.hashCode.abs() % _fallbackColors.length];
 
 class ChatPage extends StatefulWidget {
-  const ChatPage({super.key, required this.api, required this.onOpenSettings});
+  const ChatPage({
+    super.key,
+    required this.api,
+    required this.onOpenSettings,
+    required this.onOpenConnection,
+  });
 
   final ChorusApi api;
-  final VoidCallback onOpenSettings;
+  final void Function(BuildContext context) onOpenSettings;
+  final VoidCallback onOpenConnection;
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -37,6 +45,7 @@ class _ChatPageState extends State<ChatPage> {
   List<Role> _roles = [];
   var _loading = true;
   var _sending = false;
+  var _debug = false;
   String? _error;
   String? _status;
 
@@ -119,6 +128,34 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  Future<void> _regenerate() async {
+    setState(() {
+      _sending = true;
+      _status = '重新生成……';
+      _error = null;
+    });
+    try {
+      await for (final event in widget.api.regenerate()) {
+        if (!mounted) return;
+        if (event.type == 'redo') {
+          setState(() => _messages.removeWhere((m) => m.id == -1));
+          await _load();
+        } else {
+          _apply(event);
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = '重来失败：$e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _status = null;
+        });
+      }
+    }
+  }
+
   void _apply(TurnEvent event) {
     switch (event.type) {
       case 'plan':
@@ -162,16 +199,28 @@ class _ChatPageState extends State<ChatPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('Chorus'),
         actions: [
           IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            tooltip: '刷新',
+            onPressed: _sending ? null : _regenerate,
+            icon: const Icon(Icons.replay),
+            tooltip: '重来',
           ),
           IconButton(
-            onPressed: widget.onOpenSettings,
+            onPressed: () => setState(() => _debug = !_debug),
+            icon: Icon(Icons.bug_report_outlined,
+                color: _debug ? Theme.of(context).colorScheme.primary : null),
+            tooltip: '调试',
+          ),
+          IconButton(
+            onPressed: widget.onOpenConnection,
+            icon: const Icon(Icons.link),
+            tooltip: '连接',
+          ),
+          IconButton(
+            onPressed: () => widget.onOpenSettings(context),
             icon: const Icon(Icons.settings_outlined),
             tooltip: '设置',
           ),
@@ -211,7 +260,7 @@ class _ChatPageState extends State<ChatPage> {
       controller: _scroll,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       itemCount: _messages.length,
-      itemBuilder: (context, index) => _Bubble(message: _messages[index]),
+      itemBuilder: (context, index) => _Bubble(message: _messages[index], debug: _debug),
     );
   }
 }
@@ -252,9 +301,10 @@ class _RoleBar extends StatelessWidget {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.message});
+  const _Bubble({required this.message, required this.debug});
 
   final ChatMessage message;
+  final bool debug;
 
   @override
   Widget build(BuildContext context) {
@@ -308,11 +358,55 @@ class _Bubble extends StatelessWidget {
                   ),
                   child: Text(message.content),
                 ),
+                if (debug) _DebugInfo(message: message),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _DebugInfo extends StatelessWidget {
+  const _DebugInfo({required this.message});
+
+  final ChatMessage message;
+
+  Map<String, dynamic>? _trace() {
+    if (message.trace.isEmpty) return null;
+    try {
+      final parsed = jsonDecode(message.trace);
+      return parsed is Map<String, dynamic> ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final trace = _trace();
+    final plan = message.turn?['plan'] as Map<String, dynamic>?;
+    if (trace == null && plan == null) return const SizedBox.shrink();
+
+    final lines = <String>[];
+    if (plan != null) {
+      final ms = plan['ms'];
+      final speakers = plan['speakers'] as List? ?? [];
+      final who = speakers.map((s) => '${(s as Map)['name']}：${s['intent']}').join('\n');
+      lines.add('导演${ms == null ? '' : '（${(ms as int) / 1000} 秒）'}${who.isEmpty ? '这轮没安排人' : '\n$who'}');
+    }
+    if (trace != null) {
+      if (trace['intent'] != null) lines.add('意图：${trace['intent']}');
+      if (trace['ms'] != null) lines.add('耗时 ${(trace['ms'] as int) / 1000} 秒');
+      for (final call in (trace['calls'] as List? ?? [])) {
+        final c = call as Map;
+        lines.add('调用 ${c['tool']}：${c['result']}');
+      }
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(lines.join('\n'), style: const TextStyle(fontSize: 11, color: Colors.grey)),
     );
   }
 }
