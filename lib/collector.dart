@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
@@ -54,6 +56,21 @@ class Collector with WidgetsBindingObserver {
       });
     }
     unawaited(flush());
+    unawaited(_reportDevice());
+  }
+
+  /// 上报一次手机品牌和型号，服务端据此决定推送通道。
+  Future<void> _reportDevice() async {
+    try {
+      final info = await DeviceInfoPlugin().androidInfo;
+      await _record('device', {
+        'brand': info.brand,
+        'manufacturer': info.manufacturer,
+        'model': info.model,
+        'version': info.version.release,
+      });
+      await flush();
+    } catch (_) {}
   }
 
   @override

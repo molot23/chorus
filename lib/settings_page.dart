@@ -53,7 +53,6 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('连接设置')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

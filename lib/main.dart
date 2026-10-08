@@ -72,7 +72,9 @@ class _HomeState extends State<Home> {
     return ChatPage(
       api: ChorusApi(_settings),
       onOpenSettings: (context) => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ServerSettingsPage(api: ChorusApi(_settings))),
+        MaterialPageRoute(
+          builder: (_) => ServerSettingsPage(api: ChorusApi(_settings), connection: _settings),
+        ),
       ),
       onOpenConnection: _openConnection,
     );

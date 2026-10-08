@@ -1,9 +1,7 @@
-name: 编译安卓安装包
+name: 编译安卓安装包（已停用，改为本地编译）
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
 
 jobs:
   build:
