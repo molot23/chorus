@@ -123,7 +123,8 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
     final value = (current == null || current.toString().isEmpty) ? '' : current.toString();
     return ListTile(
       title: Text(label),
-      trailing: DropdownButton<String>(
+      subtitle: DropdownButton<String>(
+        isExpanded: true,
         value: value,
         items: [
           if (allowEmpty) const DropdownMenuItem(value: '', child: Text('跟生成用同一个')),
@@ -265,7 +266,7 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
       children: const [
         Text('Chorus'),
         SizedBox(height: 8),
-        Text('版本 0.3.0', style: TextStyle(color: Colors.grey)),
+        Text('版本 0.3.1', style: TextStyle(color: Colors.grey)),
         SizedBox(height: 8),
         Text('一个真人和安安、桃桃、点点的群聊。', style: TextStyle(fontSize: 13)),
       ],

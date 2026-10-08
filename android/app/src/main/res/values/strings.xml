@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="access_desc">Chorus 用它记录解锁和你正在使用的应用，不读取屏幕内容。</string>
+</resources>
