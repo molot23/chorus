@@ -128,6 +128,40 @@ class ChorusApi {
     if (response.statusCode != 200) _fail(response);
   }
 
+  /// 把当前这段对话归档，界面清空但数据还在。
+  Future<int> archive() async {
+    final response = await _client.post(_uri('/api/archive'), headers: _headers, body: '{}');
+    if (response.statusCode != 200) _fail(response);
+    final body = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    return (body['segment'] as int?) ?? 0;
+  }
+
+  /// 已归档的段，每段含 segment、ts、n。
+  Future<List<Map<String, dynamic>>> segments() async {
+    final response = await _client.get(_uri('/api/segments'), headers: _headers);
+    if (response.statusCode != 200) _fail(response);
+    final list = jsonDecode(utf8.decode(response.bodyBytes)) as List;
+    return [for (final item in list) (item as Map).cast<String, dynamic>()];
+  }
+
+  /// 某一段的消息。
+  Future<List<ChatMessage>> segmentMessages(int segment) async {
+    final response = await _client.get(_uri('/api/segments/$segment'), headers: _headers);
+    if (response.statusCode != 200) _fail(response);
+    final list = jsonDecode(utf8.decode(response.bodyBytes)) as List;
+    return [for (final item in list) ChatMessage.fromJson(item as Map<String, dynamic>)];
+  }
+
+  /// 真删除某一段。
+  Future<void> deleteSegment(int segment) async {
+    final response = await _client.post(
+      _uri('/api/segments/$segment'),
+      headers: _headers,
+      body: jsonEncode({'delete': true}),
+    );
+    if (response.statusCode != 200) _fail(response);
+  }
+
   /// 全部历史记录。
   Future<List<ChatMessage>> history() async {
     final response = await _client.get(_uri('/api/history'), headers: _headers);

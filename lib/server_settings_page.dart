@@ -17,7 +17,7 @@ class ServerSettingsPage extends StatefulWidget {
 }
 
 class _ServerSettingsPageState extends State<ServerSettingsPage> {
-  static const _categories = ['连接', '模型', '对话', '角色', '记忆', '关于'];
+  static const _categories = ['连接', '模型', '对话', '角色', '记忆', '归档', '关于'];
 
   var _index = 0;
   Map<String, dynamic>? _settings;
@@ -104,6 +104,8 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
         return _rolePage();
       case 4:
         return _memoryPage();
+      case 5:
+        return _ArchivePage(api: widget.api);
       default:
         return _aboutPage();
     }
@@ -183,32 +185,34 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
           ),
         ),
         ListTile(
-          leading: const Icon(Icons.delete_outline),
-          title: const Text('清空群记录'),
-          onTap: _clear,
+          leading: const Icon(Icons.archive_outlined),
+          title: const Text('归档这段对话'),
+          subtitle: const Text('从界面收起，数据还在，可在「归档」里查看'),
+          onTap: _archive,
         ),
         if (_error != null) _errorText(),
       ],
     );
   }
 
-  Future<void> _clear() async {
+  Future<void> _archive() async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('清空所有对话记录？'),
+        title: const Text('归档这段对话？'),
+        content: const Text('当前对话会从界面收起，保存到「归档」里，随时可以回看。'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('清空')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('归档')),
         ],
       ),
     );
     if (ok != true) return;
     try {
-      await widget.api.clearMessages();
+      await widget.api.archive();
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      if (mounted) setState(() => _error = '清空失败：$e');
+      if (mounted) setState(() => _error = '归档失败：$e');
     }
   }
 
@@ -267,7 +271,7 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
       children: const [
         Text('Chorus'),
         SizedBox(height: 8),
-        Text('版本 0.3.3', style: TextStyle(color: Colors.grey)),
+        Text('版本 0.3.4', style: TextStyle(color: Colors.grey)),
         SizedBox(height: 8),
         UpdateButton(),
         SizedBox(height: 8),
@@ -309,6 +313,136 @@ class _HistoryPageState extends State<_HistoryPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('全部记录')),
+      body: _error != null
+          ? Center(child: Text(_error!))
+          : _list == null
+              ? const Center(child: CircularProgressIndicator())
+              : ListView.builder(
+                  itemCount: _list!.length,
+                  itemBuilder: (context, index) {
+                    final m = _list![index];
+                    return ListTile(
+                      dense: true,
+                      title: Text('${m.speaker}：${m.content}'),
+                      subtitle: m.ts == null ? null : Text(m.ts!, style: const TextStyle(fontSize: 11)),
+                    );
+                  },
+                ),
+    );
+  }
+}
+
+/// 已归档的对话段：列表、回看、真删除。
+class _ArchivePage extends StatefulWidget {
+  const _ArchivePage({required this.api});
+
+  final ChorusApi api;
+
+  @override
+  State<_ArchivePage> createState() => _ArchivePageState();
+}
+
+class _ArchivePageState extends State<_ArchivePage> {
+  List<Map<String, dynamic>>? _segments;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final list = await widget.api.segments();
+      if (mounted) setState(() => _segments = list);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    }
+  }
+
+  Future<void> _delete(int segment) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('彻底删除这段？'),
+        content: const Text('删除后无法恢复。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('删除')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await widget.api.deleteSegment(segment);
+      await _load();
+    } catch (e) {
+      if (mounted) setState(() => _error = '删除失败：$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null) return Center(child: Text(_error!));
+    if (_segments == null) return const Center(child: CircularProgressIndicator());
+    if (_segments!.isEmpty) {
+      return const Center(child: Text('还没有归档的对话', style: TextStyle(color: Colors.grey)));
+    }
+    return ListView.builder(
+      itemCount: _segments!.length,
+      itemBuilder: (context, index) {
+        final s = _segments![index];
+        final segment = s['segment'] as int;
+        final ts = (s['ts'] as String?) ?? '';
+        final n = s['n'];
+        return ListTile(
+          title: Text(ts.isEmpty ? '第 $segment 段' : ts),
+          subtitle: Text('$n 条消息'),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => _SegmentPage(api: widget.api, segment: segment, title: ts)),
+          ),
+          trailing: IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: '彻底删除',
+            onPressed: () => _delete(segment),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SegmentPage extends StatefulWidget {
+  const _SegmentPage({required this.api, required this.segment, required this.title});
+
+  final ChorusApi api;
+  final int segment;
+  final String title;
+
+  @override
+  State<_SegmentPage> createState() => _SegmentPageState();
+}
+
+class _SegmentPageState extends State<_SegmentPage> {
+  List<ChatMessage>? _list;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.api.segmentMessages(widget.segment).then((list) {
+      if (mounted) setState(() => _list = list);
+    }).catchError((e) {
+      if (mounted) setState(() => _error = '$e');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.title.isEmpty ? '第 ${widget.segment} 段' : widget.title)),
       body: _error != null
           ? Center(child: Text(_error!))
           : _list == null
