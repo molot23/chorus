@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'models.dart';
 import 'settings_page.dart';
+import 'update.dart';
 
 /// 设置页：左边分类，右边内容。加新设置项就是加一个分类。
 class ServerSettingsPage extends StatefulWidget {
@@ -266,7 +267,9 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
       children: const [
         Text('Chorus'),
         SizedBox(height: 8),
-        Text('版本 0.3.2', style: TextStyle(color: Colors.grey)),
+        Text('版本 0.3.3', style: TextStyle(color: Colors.grey)),
+        SizedBox(height: 8),
+        UpdateButton(),
         SizedBox(height: 8),
         Text('一个真人和安安、桃桃、点点的群聊。', style: TextStyle(fontSize: 13)),
       ],
