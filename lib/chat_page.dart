@@ -42,7 +42,6 @@ class _ChatPageState extends State<ChatPage> {
   final _scroll = ScrollController();
 
   List<ChatMessage> _messages = [];
-  List<Role> _roles = [];
   var _loading = true;
   var _sending = false;
   var _debug = false;
@@ -68,14 +67,10 @@ class _ChatPageState extends State<ChatPage> {
       _error = null;
     });
     try {
-      final results = await Future.wait([
-        widget.api.messages(),
-        widget.api.roles(),
-      ]);
+      final messages = await widget.api.messages();
       if (!mounted) return;
       setState(() {
-        _messages = results[0] as List<ChatMessage>;
-        _roles = results[1] as List<Role>;
+        _messages = messages;
         _loading = false;
       });
       _scrollToEnd();
@@ -233,7 +228,6 @@ class _ChatPageState extends State<ChatPage> {
       ),
       body: Column(
         children: [
-          if (_roles.isNotEmpty) _RoleBar(roles: _roles),
           Expanded(child: _buildBody()),
           if (_status != null)
             Padding(
@@ -266,41 +260,6 @@ class _ChatPageState extends State<ChatPage> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       itemCount: _messages.length,
       itemBuilder: (context, index) => _Bubble(message: _messages[index], debug: _debug),
-    );
-  }
-}
-
-class _RoleBar extends StatelessWidget {
-  const _RoleBar({required this.roles});
-
-  final List<Role> roles;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 44,
-      alignment: Alignment.centerLeft,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        children: [
-          for (final role in roles)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Chip(
-                avatar: CircleAvatar(
-                  backgroundColor: colorOf(role.name),
-                  child: Text(
-                    role.name.characters.first,
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ),
-                label: Text(role.name),
-                visualDensity: VisualDensity.compact,
-              ),
-            ),
-        ],
-      ),
     );
   }
 }

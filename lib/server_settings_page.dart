@@ -274,7 +274,7 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
       children: [
         const Text('Chorus'),
         const SizedBox(height: 8),
-        const Text('版本 0.3.6', style: TextStyle(color: Colors.grey)),
+        const Text('版本 0.3.7', style: TextStyle(color: Colors.grey)),
         const SizedBox(height: 8),
         UpdateButton(api: widget.api),
         const SizedBox(height: 8),
