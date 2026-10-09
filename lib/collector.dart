@@ -104,14 +104,21 @@ class Collector with WidgetsBindingObserver {
     });
   }
 
-  /// 无障碍服务推过来的前台应用切换。服务没开时这里收不到任何东西。
+  /// 无障碍服务推过来的事件：解锁、亮灭屏、前台应用切换。服务没开时这里收不到任何东西。
   void _startAccess() {
     _accessChannel.receiveBroadcastStream().listen((event) {
       final data = Map<String, dynamic>.from(event as Map);
-      final name = data['name'] as String? ?? '';
-      if (name == _lastApp) return;
-      _lastApp = name;
-      _record('app', {'name': name});
+      switch (data['kind']) {
+        case 'unlock':
+          _record('unlock', {});
+        case 'screen':
+          _record('screen', {'state': data['state']});
+        case 'app':
+          final name = data['name'] as String? ?? '';
+          if (name == _lastApp) return;
+          _lastApp = name;
+          _record('app', {'name': name});
+      }
     });
   }
 
