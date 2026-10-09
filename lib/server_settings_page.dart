@@ -29,11 +29,19 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
   String _facts = '';
   var _loading = true;
   String? _error;
+  late final TextEditingController _guide;
 
   @override
   void initState() {
     super.initState();
+    _guide = TextEditingController();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _guide.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -52,6 +60,8 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
         _facts = results[3] as String;
         _loading = false;
         _error = null;
+        final guide = (_settings?['director_prompt'] as String?) ?? '';
+        if (_guide.text != guide) _guide.text = guide;
       });
     } catch (e) {
       if (mounted) {
@@ -148,46 +158,34 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
   Widget _talkPage() {
     return ListView(
       children: [
-        SwitchListTile(
-          title: const Text('反思'),
-          subtitle: const Text('停顿一段时间后，角色自己决定记什么'),
-          value: _settings?['reflect_enabled'] == true,
-          onChanged: (v) => _save({'reflect_enabled': v}),
-        ),
         ListTile(
-          title: Text('每轮最多 ${_settings?['max_responders'] ?? 1} 个角色响应'),
+          title: Text('导演看最近 ${_settings?['director_rounds'] ?? 5} 轮'),
           subtitle: Slider(
             min: 1,
-            max: 5,
-            divisions: 4,
-            value: ((_settings?['max_responders'] ?? 1) as num).toDouble(),
-            onChanged: (v) => setState(() => _settings?['max_responders'] = v.round()),
-            onChangeEnd: (v) => _save({'max_responders': v.round()}),
+            max: 20,
+            divisions: 19,
+            value: ((_settings?['director_rounds'] ?? 5) as num).toDouble(),
+            onChanged: (v) => setState(() => _settings?['director_rounds'] = v.round()),
+            onChangeEnd: (v) => _save({'director_rounds': v.round()}),
           ),
         ),
-        ListTile(
-          title: Text('停顿 ${_settings?['reflect_after_seconds'] ?? 45} 秒后反思'),
-          subtitle: Slider(
-            min: 10,
-            max: 300,
-            divisions: 29,
-            value: ((_settings?['reflect_after_seconds'] ?? 45) as num).toDouble(),
-            onChanged: (v) => setState(() => _settings?['reflect_after_seconds'] = v.round()),
-            onChangeEnd: (v) => _save({'reflect_after_seconds': v.round()}),
+        const ListTile(
+          title: Text('导演怎么看这个群'),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: TextField(
+            controller: _guide,
+            maxLines: 8,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              hintText: '这段文字原样交给导演',
+            ),
           ),
         ),
-        ListTile(
-          title: const Text('调度用'),
-          trailing: DropdownButton<String>(
-            value: (_settings?['director'] as String?) ?? 'llm',
-            items: const [
-              DropdownMenuItem(value: 'llm', child: Text('原来的导演')),
-              DropdownMenuItem(value: 'clef', child: Text('Clef 决策')),
-            ],
-            onChanged: (v) {
-              if (v != null) _save({'director': v});
-            },
-          ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(onPressed: () => _save({'director_prompt': _guide.text}), child: const Text('保存')),
         ),
         ListTile(
           leading: const Icon(Icons.archive_outlined),

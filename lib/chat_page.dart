@@ -47,6 +47,7 @@ class _ChatPageState extends State<ChatPage> {
   var _debug = false;
   String? _error;
   String? _status;
+  Map<String, dynamic>? _plan;
 
   @override
   void initState() {
@@ -156,6 +157,10 @@ class _ChatPageState extends State<ChatPage> {
       case 'plan':
         final speakers = event.data['speakers'] as List? ?? [];
         setState(() {
+          _plan = {
+            'speakers': speakers,
+            'ms': event.data['ms'],
+          };
           _status = speakers.isEmpty
               ? '这轮没有人接话'
               : '${speakers.map((s) => (s as Map)['name']).join('、')} 准备说话';
@@ -172,10 +177,10 @@ class _ChatPageState extends State<ChatPage> {
               content: event.content ?? '',
               kind: 'chat',
               trace: jsonEncode({
-                'intent': event.data['intent'],
                 'ms': event.data['ms'],
                 'calls': event.data['trace'] ?? [],
               }),
+              turn: _plan == null ? null : {'plan': _plan},
             ),
           ];
         });
@@ -357,7 +362,12 @@ class _DebugInfo extends StatelessWidget {
     if (plan != null) {
       final ms = plan['ms'];
       final speakers = plan['speakers'] as List? ?? [];
-      final who = speakers.map((s) => '${(s as Map)['name']}：${s['intent']}').join('\n');
+      final who = speakers.map((s) {
+        final item = s as Map;
+        final intent = item['intent'];
+        if (intent == null || '$intent'.isEmpty) return '${item['name']}';
+        return '${item['name']}：$intent';
+      }).join('\n');
       lines.add('导演${ms == null ? '' : '（${(ms as int) / 1000} 秒）'}${who.isEmpty ? '这轮没安排人' : '\n$who'}');
     }
     if (trace != null) {
