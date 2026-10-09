@@ -176,6 +176,11 @@ class _ChatPageState extends State<ChatPage> {
               speaker: event.speaker ?? '',
               content: event.content ?? '',
               kind: 'chat',
+              trace: jsonEncode({
+                'intent': event.data['intent'],
+                'ms': event.data['ms'],
+                'calls': event.data['trace'] ?? [],
+              }),
             ),
           ];
         });

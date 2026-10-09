@@ -266,7 +266,7 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
       children: const [
         Text('Chorus'),
         SizedBox(height: 8),
-        Text('版本 0.3.1', style: TextStyle(color: Colors.grey)),
+        Text('版本 0.3.2', style: TextStyle(color: Colors.grey)),
         SizedBox(height: 8),
         Text('一个真人和安安、桃桃、点点的群聊。', style: TextStyle(fontSize: 13)),
       ],
