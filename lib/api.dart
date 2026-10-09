@@ -170,6 +170,20 @@ class ChorusApi {
     return [for (final item in list) ChatMessage.fromJson(item as Map<String, dynamic>)];
   }
 
+  /// 服务器代查 GitHub 发布列表，手机直连经常被拦。
+  Future<List<dynamic>> releases() async {
+    final response = await _client.get(_uri('/api/release'), headers: _headers);
+    if (response.statusCode != 200) _fail(response);
+    return jsonDecode(utf8.decode(response.bodyBytes)) as List;
+  }
+
+  /// 服务端调试信息：融合后的状态和最近的信号。
+  Future<Map<String, dynamic>> debugInfo() async {
+    final response = await _client.get(_uri('/api/debug'), headers: _headers);
+    if (response.statusCode != 200) _fail(response);
+    return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
   /// 上报一条采集信号。ts 是采集发生的时间，不是上报时间。
   Future<void> signal(String ts, String kind, Map<String, dynamic> data) async {
     final response = await _client.post(

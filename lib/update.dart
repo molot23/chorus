@@ -1,13 +1,11 @@
-import 'dart:convert';
 import 'dart:io';
 
+import 'api.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
-
-const _repo = 'molot23/chorus';
 
 /// 对比版本号，remote 比 local 新就返回 true。
 bool _isNewer(String remote, String local) {
@@ -23,7 +21,9 @@ bool _isNewer(String remote, String local) {
 
 /// 检查 GitHub 上的最新版本，比当前新就下载并拉起安装。
 class UpdateButton extends StatefulWidget {
-  const UpdateButton({super.key});
+  const UpdateButton({super.key, required this.api});
+
+  final ChorusApi api;
 
   @override
   State<UpdateButton> createState() => _UpdateButtonState();
@@ -40,12 +40,8 @@ class _UpdateButtonState extends State<UpdateButton> {
     });
     try {
       final info = await PackageInfo.fromPlatform();
-      final response = await http.get(Uri.parse('https://api.github.com/repos/$_repo/releases'));
-      if (response.statusCode != 200) {
-        setState(() => _text = '检查失败：${response.statusCode}');
-        return;
-      }
-      final releases = jsonDecode(response.body) as List;
+      // 手机直连 GitHub 经常被拦，发布列表由服务器代查。
+      final releases = await widget.api.releases();
       String? newest;
       String? url;
       for (final release in releases) {
@@ -64,7 +60,8 @@ class _UpdateButtonState extends State<UpdateButton> {
         return;
       }
       setState(() => _text = '正在下载 $newest ……');
-      final bytes = await http.readBytes(Uri.parse(url!));
+      // 安装包直接从 GitHub 下，不经过服务器，服务器带宽太小。
+      final bytes = await http.readBytes(Uri.parse(url!), headers: {'User-Agent': 'chorus'});
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/chorus-$newest.apk');
       await file.writeAsBytes(bytes);

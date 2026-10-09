@@ -22,8 +22,28 @@ class Collector with WidgetsBindingObserver {
 
   final Settings settings;
   static const _accessChannel = EventChannel('dev.chorus.chorus/access');
+  static const _deviceChannel = MethodChannel('dev.chorus.chorus/device');
   var _started = false;
   String _lastApp = '';
+
+  /// 无障碍服务是否已开启。解锁和前台应用采集依赖它，只能用户手动开。
+  static Future<bool> accessibilityEnabled() async {
+    final enabled = await _deviceChannel.invokeMethod<bool>('accessibilityEnabled');
+    return enabled ?? false;
+  }
+
+  /// 跳到系统的无障碍设置页。
+  static Future<void> openAccessibilitySettings() =>
+      _deviceChannel.invokeMethod('openAccessibilitySettings');
+
+  /// 跳到本应用的系统设置页。
+  static Future<void> openAppSettings() => _deviceChannel.invokeMethod('openAppSettings');
+
+  /// 定位和通知权限的授予情况。
+  static Future<Map<String, bool>> permissions() async => {
+        'location': await _deviceChannel.invokeMethod<bool>('locationGranted') ?? false,
+        'notification': await _deviceChannel.invokeMethod<bool>('notificationGranted') ?? false,
+      };
 
   Future<void> start() async {
     if (_started) return;
@@ -102,6 +122,23 @@ class Collector with WidgetsBindingObserver {
               : 'none';
       _record('network', {'type': kind});
     });
+  }
+
+  /// 立刻采集一轮当前状态，调试用。不依赖后台服务是否在跑。
+  static Future<void> collectNow() async {
+    final settings = Settings();
+    await settings.load();
+    final collector = Collector(settings);
+    await collector._locate();
+    await collector._recordBattery(Battery());
+    await collector._reportDevice();
+    await collector.flush();
+  }
+
+  /// 还没发出去的信号条数。
+  static Future<int> pendingCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList('signals')?.length ?? 0;
   }
 
   /// 无障碍服务推过来的事件：解锁、亮灭屏、前台应用切换。服务没开时这里收不到任何东西。

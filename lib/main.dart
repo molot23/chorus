@@ -41,11 +41,18 @@ class _HomeState extends State<Home> {
   @override
   void initState() {
     super.initState();
-    _settings.load().then((_) {
+    _settings.load().then((_) async {
       if (!mounted) return;
       setState(() => _ready = true);
       if (_settings.isConfigured) {
         _collector = Collector(_settings)..start();
+        // 无障碍没开时提醒一次，解锁和前台应用采集都靠它。
+        if (!await Collector.accessibilityEnabled() && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: const Text('解锁和前台应用采集需要开启无障碍服务'),
+            action: SnackBarAction(label: '去开启', onPressed: Collector.openAccessibilitySettings),
+          ));
+        }
       }
     });
   }

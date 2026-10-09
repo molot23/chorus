@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'api.dart';
 import 'models.dart';
+import 'collector.dart';
 import 'settings_page.dart';
 import 'update.dart';
 
@@ -17,7 +18,7 @@ class ServerSettingsPage extends StatefulWidget {
 }
 
 class _ServerSettingsPageState extends State<ServerSettingsPage> {
-  static const _categories = ['连接', '模型', '对话', '角色', '记忆', '归档', '关于'];
+  static const _categories = ['连接', '模型', '对话', '角色', '记忆', '归档', '本机', '关于'];
 
   var _index = 0;
   Map<String, dynamic>? _settings;
@@ -106,6 +107,8 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
         return _memoryPage();
       case 5:
         return _ArchivePage(api: widget.api);
+      case 6:
+        return _LocalDebugPage(api: widget.api);
       default:
         return _aboutPage();
     }
@@ -268,14 +271,14 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
   Widget _aboutPage() {
     return ListView(
       padding: const EdgeInsets.all(16),
-      children: const [
-        Text('Chorus'),
-        SizedBox(height: 8),
-        Text('版本 0.3.5', style: TextStyle(color: Colors.grey)),
-        SizedBox(height: 8),
-        UpdateButton(),
-        SizedBox(height: 8),
-        Text('一个真人和安安、桃桃、点点的群聊。', style: TextStyle(fontSize: 13)),
+      children: [
+        const Text('Chorus'),
+        const SizedBox(height: 8),
+        const Text('版本 0.3.6', style: TextStyle(color: Colors.grey)),
+        const SizedBox(height: 8),
+        UpdateButton(api: widget.api),
+        const SizedBox(height: 8),
+        const Text('一个真人和安安、桃桃、点点的群聊。', style: TextStyle(fontSize: 13)),
       ],
     );
   }
@@ -458,6 +461,142 @@ class _SegmentPageState extends State<_SegmentPage> {
                     );
                   },
                 ),
+    );
+  }
+}
+
+
+/// 本机调试：权限状态、立即采集、上报队列、服务端收到的信号。
+class _LocalDebugPage extends StatefulWidget {
+  const _LocalDebugPage({required this.api});
+
+  final ChorusApi api;
+
+  @override
+  State<_LocalDebugPage> createState() => _LocalDebugPageState();
+}
+
+class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObserver {
+  bool? _accessibility;
+  Map<String, bool> _permissions = {};
+  int? _pending;
+  Map<String, dynamic>? _server;
+  String? _error;
+  var _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// 从系统设置页回来时重新读权限，省得手动刷新。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refresh();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final results = await Future.wait([
+        Collector.accessibilityEnabled(),
+        Collector.permissions(),
+        Collector.pendingCount(),
+        widget.api.debugInfo(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _accessibility = results[0] as bool;
+        _permissions = results[1] as Map<String, bool>;
+        _pending = results[2] as int;
+        _server = results[3] as Map<String, dynamic>;
+        _error = null;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    }
+  }
+
+  Future<void> _collectNow() async {
+    setState(() => _busy = true);
+    try {
+      await Collector.collectNow();
+      await _refresh();
+    } catch (e) {
+      if (mounted) setState(() => _error = '采集失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String _stateText(String key) {
+    final state = (_server?['state'] as Map?) ?? {};
+    final value = state[key];
+    if (value == null) return '未知';
+    if (value is bool) return value ? '是' : '否';
+    if (value is Map) return value.entries.map((e) => '${e.key} ${e.value}').join('，');
+    return '$value';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final signals = ((_server?['signals'] as List?) ?? []).cast<Map>();
+    return ListView(
+      children: [
+        ListTile(
+          leading: Icon(
+            _accessibility == true ? Icons.check_circle : Icons.error_outline,
+            color: _accessibility == true ? Colors.green : Colors.orange,
+          ),
+          title: Text('无障碍服务：${_accessibility == null ? '读取中' : _accessibility! ? '已开启' : '未开启'}'),
+          subtitle: const Text('解锁、亮灭屏和前台应用都靠它，只能手动开启'),
+          trailing: TextButton(
+            onPressed: Collector.openAccessibilitySettings,
+            child: const Text('去开启'),
+          ),
+        ),
+        ListTile(
+          title: Text('定位权限：${_permissions['location'] == true ? '已授予' : '未授予'}'),
+          subtitle: Text('通知权限：${_permissions['notification'] == true ? '已授予' : '未授予'}'),
+          trailing: TextButton(
+            onPressed: Collector.openAppSettings,
+            child: const Text('去设置'),
+          ),
+        ),
+        ListTile(
+          title: Text('待上报 ${_pending ?? '-'} 条'),
+          subtitle: const Text('连不上服务器时攒在本机，连上自动补发'),
+          trailing: TextButton(
+            onPressed: _busy ? null : _collectNow,
+            child: Text(_busy ? '采集中' : '立即采集'),
+          ),
+        ),
+        const Divider(),
+        ListTile(title: const Text('服务端看到的状态'), subtitle: Text('更新于 ${_stateText('updated_at')}')),
+        ListTile(dense: true, title: Text('起床时间：${_stateText('woke_at')}')),
+        ListTile(dense: true, title: Text('手机在用：${_stateText('phone_in_use')}，电脑在用：${_stateText('computer_in_use')}')),
+        ListTile(dense: true, title: Text('位置：${_stateText('location')}')),
+        const Divider(),
+        const ListTile(title: Text('最近上报的信号'), subtitle: Text('服务端收到的最近 30 条')),
+        for (final item in signals)
+          ListTile(
+            dense: true,
+            title: Text('${item['kind']}  ${item['data']}'),
+            subtitle: Text('${item['ts']}', style: const TextStyle(fontSize: 11)),
+          ),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+          ),
+      ],
     );
   }
 }
