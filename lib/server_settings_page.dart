@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import 'api.dart';
@@ -274,7 +276,7 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
       children: [
         const Text('Chorus'),
         const SizedBox(height: 8),
-        const Text('版本 0.3.7', style: TextStyle(color: Colors.grey)),
+        const Text('版本 0.3.8', style: TextStyle(color: Colors.grey)),
         const SizedBox(height: 8),
         UpdateButton(api: widget.api),
         const SizedBox(height: 8),
@@ -466,7 +468,7 @@ class _SegmentPageState extends State<_SegmentPage> {
 }
 
 
-/// 本机调试：权限状态、立即采集、上报队列、服务端收到的信号。
+/// 本机调试：上报开关、权限状态、服务端收到的信号。
 class _LocalDebugPage extends StatefulWidget {
   const _LocalDebugPage({required this.api});
 
@@ -477,8 +479,19 @@ class _LocalDebugPage extends StatefulWidget {
 }
 
 class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObserver {
+  static const _kindLabels = {
+    'unlock': '解锁',
+    'screen': '亮灭屏',
+    'app': '前台应用',
+    'location': '定位',
+    'battery': '电量',
+    'network': '网络',
+    'device': '设备信息',
+  };
+
   bool? _accessibility;
   Map<String, bool> _permissions = {};
+  Map<String, bool> _switches = {};
   int? _pending;
   Map<String, dynamic>? _server;
   String? _error;
@@ -508,6 +521,7 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
       final results = await Future.wait([
         Collector.accessibilityEnabled(),
         Collector.permissions(),
+        Collector.switches(),
         Collector.pendingCount(),
         widget.api.debugInfo(),
       ]);
@@ -515,13 +529,19 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
       setState(() {
         _accessibility = results[0] as bool;
         _permissions = results[1] as Map<String, bool>;
-        _pending = results[2] as int;
-        _server = results[3] as Map<String, dynamic>;
+        _switches = results[2] as Map<String, bool>;
+        _pending = results[3] as int;
+        _server = results[4] as Map<String, dynamic>;
         _error = null;
       });
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
+  }
+
+  Future<void> _toggle(String kind, bool value) async {
+    setState(() => _switches[kind] = value);
+    await Collector.setEnabled(kind, value);
   }
 
   Future<void> _collectNow() async {
@@ -545,11 +565,73 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
     return '$value';
   }
 
+  (String, String, Map<String, dynamic>) _parse(Map item) {
+    final raw = item['data'];
+    Map<String, dynamic> data = {};
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        data = (jsonDecode(raw) as Map).cast<String, dynamic>();
+      } catch (_) {}
+    } else if (raw is Map) {
+      data = raw.cast<String, dynamic>();
+    }
+    return (item['kind'] as String? ?? '', item['ts'] as String? ?? '', data);
+  }
+
+  /// 把一条信号格式化成一行可读的文字。
+  String _describe(String kind, Map<String, dynamic> data) {
+    switch (kind) {
+      case 'unlock':
+        return '解锁了';
+      case 'screen':
+        return data['state'] == 'on' ? '亮屏' : '灭屏';
+      case 'app':
+        final label = data['label'] as String? ?? '';
+        final name = data['name'] as String? ?? '';
+        if (label.isEmpty || label == name) return name;
+        return '$label（$name）';
+      case 'location':
+        return '纬度 ${data['lat']}，经度 ${data['lon']}';
+      case 'battery':
+        final charging = data['charging'] == true ? '充电中' : '未充电';
+        return '电量 ${data['level']}%，$charging';
+      case 'network':
+        const names = {'wifi': 'WiFi', 'mobile': '移动网络', 'none': '无网络'};
+        return names[data['type']] ?? '${data['type']}';
+      case 'device':
+        return '${data['brand']} ${data['model']} · Android ${data['version']}';
+      default:
+        return data.entries.map((e) => '${e.key} ${e.value}').join('，');
+    }
+  }
+
+  /// 时间只留月日和时分秒，去掉年份和毫秒。
+  String _time(String ts) => ts.length < 19 ? ts : ts.substring(5, 19).replaceFirst('T', ' ');
+
   @override
   Widget build(BuildContext context) {
-    final signals = ((_server?['signals'] as List?) ?? []).cast<Map>();
+    final signals = [
+      for (final item in ((_server?['signals'] as List?) ?? []).cast<Map>()) _parse(item),
+    ];
+    final counts = <String, int>{};
+    for (final signal in signals) {
+      counts[signal.$1] = (counts[signal.$1] ?? 0) + 1;
+    }
+    final summary = counts.entries.map((e) => '${_kindLabels[e.key] ?? e.key} ${e.value}').join('，');
+
     return ListView(
       children: [
+        const ListTile(
+          title: Text('上报开关'),
+          subtitle: Text('关掉的不再采集，也不再上报'),
+        ),
+        for (final kind in Collector.kinds)
+          SwitchListTile(
+            title: Text(_kindLabels[kind] ?? kind),
+            value: _switches[kind] ?? true,
+            onChanged: (value) => _toggle(kind, value),
+          ),
+        const Divider(),
         ListTile(
           leading: Icon(
             _accessibility == true ? Icons.check_circle : Icons.error_outline,
@@ -571,8 +653,16 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
           ),
         ),
         ListTile(
+          title: Text('使用情况访问：${_permissions['usage'] == true ? '已授予' : '未授予'}'),
+          subtitle: const Text('应用使用时长靠它，采集还没做'),
+          trailing: TextButton(
+            onPressed: Collector.openUsageSettings,
+            child: const Text('去设置'),
+          ),
+        ),
+        ListTile(
           title: Text('待上报 ${_pending ?? '-'} 条'),
-          subtitle: const Text('连不上服务器时攒在本机，连上自动补发'),
+          subtitle: const Text('连不上时攒在本机，后台每 2 分钟补发一次'),
           trailing: TextButton(
             onPressed: _busy ? null : _collectNow,
             child: Text(_busy ? '采集中' : '立即采集'),
@@ -584,12 +674,15 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
         ListTile(dense: true, title: Text('手机在用：${_stateText('phone_in_use')}，电脑在用：${_stateText('computer_in_use')}')),
         ListTile(dense: true, title: Text('位置：${_stateText('location')}')),
         const Divider(),
-        const ListTile(title: Text('最近上报的信号'), subtitle: Text('服务端收到的最近 30 条')),
-        for (final item in signals)
+        ListTile(
+          title: const Text('服务端收到的信号'),
+          subtitle: Text(signals.isEmpty ? '还没有' : '最近 ${signals.length} 条：$summary'),
+        ),
+        for (final signal in signals)
           ListTile(
             dense: true,
-            title: Text('${item['kind']}  ${item['data']}'),
-            subtitle: Text('${item['ts']}', style: const TextStyle(fontSize: 11)),
+            title: Text('${_kindLabels[signal.$1] ?? signal.$1}  ${_describe(signal.$1, signal.$3)}'),
+            subtitle: Text(_time(signal.$2), style: const TextStyle(fontSize: 11)),
           ),
         if (_error != null)
           Padding(

@@ -57,7 +57,12 @@ class ChorusAccessibilityService : android.accessibilityservice.AccessibilitySer
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val name = event.packageName?.toString() ?: return
         if (name == this.packageName) return
-        sink?.success(mapOf("kind" to "app", "name" to name))
+        val label = try {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(name, 0)).toString()
+        } catch (e: android.content.pm.PackageManager.NameNotFoundException) {
+            name
+        }
+        sink?.success(mapOf("kind" to "app", "name" to name, "label" to label))
     }
 
     override fun onInterrupt() {}
@@ -105,9 +110,23 @@ class MainActivity : FlutterActivity() {
                             android.content.pm.PackageManager.PERMISSION_GRANTED
                     else true
                 )
+                "usageGranted" -> result.success(usageGranted())
+                "openUsageSettings" -> {
+                    startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
+    }
+
+    /// 使用情况访问权限，用来读应用使用时长。
+    private fun usageGranted(): Boolean {
+        val appOps = getSystemService(APP_OPS_SERVICE) as android.app.AppOpsManager
+        val mode = appOps.unsafeCheckOpNoThrow(
+            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName
+        )
+        return mode == android.app.AppOpsManager.MODE_ALLOWED
     }
 
     /// 无障碍权限只能由用户在系统设置里手动开，这里只判断开没开。

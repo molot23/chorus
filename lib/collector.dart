@@ -26,6 +26,27 @@ class Collector with WidgetsBindingObserver {
   var _started = false;
   String _lastApp = '';
 
+  /// 每一种信号的上报开关，存在本机，默认都开。
+  static const kinds = ['unlock', 'screen', 'app', 'location', 'battery', 'network', 'device'];
+
+  /// 某种信号是否允许上报。
+  static Future<bool> enabled(String kind) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('collect_$kind') ?? true;
+  }
+
+  /// 改某种信号的上报开关。关掉后不再采集，也不再上报。
+  static Future<void> setEnabled(String kind, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('collect_$kind', value);
+  }
+
+  /// 全部开关的当前状态。
+  static Future<Map<String, bool>> switches() async {
+    final prefs = await SharedPreferences.getInstance();
+    return {for (final kind in kinds) kind: prefs.getBool('collect_$kind') ?? true};
+  }
+
   /// 无障碍服务是否已开启。解锁和前台应用采集依赖它，只能用户手动开。
   static Future<bool> accessibilityEnabled() async {
     final enabled = await _deviceChannel.invokeMethod<bool>('accessibilityEnabled');
@@ -43,7 +64,11 @@ class Collector with WidgetsBindingObserver {
   static Future<Map<String, bool>> permissions() async => {
         'location': await _deviceChannel.invokeMethod<bool>('locationGranted') ?? false,
         'notification': await _deviceChannel.invokeMethod<bool>('notificationGranted') ?? false,
+        'usage': await _deviceChannel.invokeMethod<bool>('usageGranted') ?? false,
       };
+
+  /// 跳到使用情况访问的设置页。
+  static Future<void> openUsageSettings() => _deviceChannel.invokeMethod('openUsageSettings');
 
   Future<void> start() async {
     if (_started) return;
@@ -76,6 +101,8 @@ class Collector with WidgetsBindingObserver {
 
     // 定位每 5 分钟记一次，不管动没动，用来判断停留。
     Timer.periodic(const Duration(minutes: 5), (_) => _locate());
+    // 后台也补发，不用等打开应用。前台服务保住进程，这个计时器才走得动。
+    Timer.periodic(const Duration(minutes: 2), (_) => flush());
   }
 
   Future<void> _startLocation() async {
@@ -97,8 +124,9 @@ class Collector with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  void _saveLocation(Position position) {
-    _record('location', {'lat': position.latitude, 'lon': position.longitude});
+  Future<void> _saveLocation(Position position) async {
+    if (!await enabled('location')) return;
+    await _record('location', {'lat': position.latitude, 'lon': position.longitude});
   }
 
   void _startBattery() {
@@ -108,19 +136,21 @@ class Collector with WidgetsBindingObserver {
   }
 
   Future<void> _recordBattery(Battery battery) async {
+    if (!await enabled('battery')) return;
     final level = await battery.batteryLevel;
     final state = await battery.batteryState;
     _record('battery', {'level': level, 'charging': state == BatteryState.charging});
   }
 
   void _startNetwork() {
-    Connectivity().onConnectivityChanged.listen((results) {
+    Connectivity().onConnectivityChanged.listen((results) async {
+      if (!await enabled('network')) return;
       final kind = results.contains(ConnectivityResult.wifi)
           ? 'wifi'
           : results.contains(ConnectivityResult.mobile)
               ? 'mobile'
               : 'none';
-      _record('network', {'type': kind});
+      await _record('network', {'type': kind});
     });
   }
 
@@ -143,24 +173,28 @@ class Collector with WidgetsBindingObserver {
 
   /// 无障碍服务推过来的事件：解锁、亮灭屏、前台应用切换。服务没开时这里收不到任何东西。
   void _startAccess() {
-    _accessChannel.receiveBroadcastStream().listen((event) {
+    _accessChannel.receiveBroadcastStream().listen((event) async {
       final data = Map<String, dynamic>.from(event as Map);
       switch (data['kind']) {
         case 'unlock':
-          _record('unlock', {});
+          if (!await enabled('unlock')) return;
+          await _record('unlock', {});
         case 'screen':
-          _record('screen', {'state': data['state']});
+          if (!await enabled('screen')) return;
+          await _record('screen', {'state': data['state']});
         case 'app':
+          if (!await enabled('app')) return;
           final name = data['name'] as String? ?? '';
           if (name == _lastApp) return;
           _lastApp = name;
-          _record('app', {'name': name});
+          await _record('app', {'name': name, 'label': data['label'] ?? name});
       }
     });
   }
 
   /// 上报一次手机品牌和型号。
   Future<void> _reportDevice() async {
+    if (!await enabled('device')) return;
     try {
       final info = await DeviceInfoPlugin().androidInfo;
       await _record('device', {
