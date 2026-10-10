@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import 'api.dart';
@@ -47,7 +45,6 @@ class _ChatPageState extends State<ChatPage> {
   var _debug = false;
   String? _error;
   String? _status;
-  Map<String, dynamic>? _plan;
 
   @override
   void initState() {
@@ -157,10 +154,6 @@ class _ChatPageState extends State<ChatPage> {
       case 'plan':
         final speakers = event.data['speakers'] as List? ?? [];
         setState(() {
-          _plan = {
-            'speakers': speakers,
-            'ms': event.data['ms'],
-          };
           _status = speakers.isEmpty
               ? '这轮没有人接话'
               : '${speakers.map((s) => (s as Map)['name']).join('、')} 准备说话';
@@ -176,11 +169,7 @@ class _ChatPageState extends State<ChatPage> {
               speaker: event.speaker ?? '',
               content: event.content ?? '',
               kind: 'chat',
-              trace: jsonEncode({
-                'ms': event.data['ms'],
-                'calls': event.data['trace'] ?? [],
-              }),
-              turn: _plan == null ? null : {'plan': _plan},
+              debug: (event.data['debug'] as String?) ?? '',
             ),
           ];
         });
@@ -342,45 +331,12 @@ class _DebugInfo extends StatelessWidget {
 
   final ChatMessage message;
 
-  Map<String, dynamic>? _trace() {
-    if (message.trace.isEmpty) return null;
-    try {
-      final parsed = jsonDecode(message.trace);
-      return parsed is Map<String, dynamic> ? parsed : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final trace = _trace();
-    final plan = message.turn?['plan'] as Map<String, dynamic>?;
-    if (trace == null && plan == null) return const SizedBox.shrink();
-
-    final lines = <String>[];
-    if (plan != null) {
-      final ms = plan['ms'];
-      final speakers = plan['speakers'] as List? ?? [];
-      final who = speakers.map((s) {
-        final item = s as Map;
-        final intent = item['intent'];
-        if (intent == null || '$intent'.isEmpty) return '${item['name']}';
-        return '${item['name']}：$intent';
-      }).join('\n');
-      lines.add('导演${ms == null ? '' : '（${(ms as int) / 1000} 秒）'}${who.isEmpty ? '这轮没安排人' : '\n$who'}');
-    }
-    if (trace != null) {
-      if (trace['intent'] != null) lines.add('意图：${trace['intent']}');
-      if (trace['ms'] != null) lines.add('耗时 ${(trace['ms'] as int) / 1000} 秒');
-      for (final call in (trace['calls'] as List? ?? [])) {
-        final c = call as Map;
-        lines.add('调用 ${c['tool']}：${c['result']}');
-      }
-    }
+    if (message.debug.trim().isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 4),
-      child: Text(lines.join('\n'), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      child: Text(message.debug, style: const TextStyle(fontSize: 11, color: Colors.grey)),
     );
   }
 }

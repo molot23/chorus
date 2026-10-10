@@ -35,6 +35,7 @@ class ChatMessage {
     this.ts,
     this.trace = '',
     this.turn,
+    this.debug = '',
   });
 
   final int id;
@@ -51,6 +52,9 @@ class ChatMessage {
   /// 触发这一轮的用户消息附带的调度记录，没有就是 null。
   final Map<String, dynamic>? turn;
 
+  /// 服务器排好的调试文字。显示什么由服务器决定，这里只负责显示。
+  final String debug;
+
   bool get isMine => speaker == '我';
   bool get isSystem => kind == 'system';
 
@@ -62,6 +66,7 @@ class ChatMessage {
         ts: json['ts'] as String?,
         trace: (json['trace'] as String?) ?? '',
         turn: json['turn'] as Map<String, dynamic>?,
+        debug: (json['debug'] as String?) ?? '',
       );
 }
 
