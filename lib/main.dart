@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'api.dart';
@@ -45,7 +47,7 @@ class _HomeState extends State<Home> {
       if (!mounted) return;
       setState(() => _ready = true);
       if (_settings.isConfigured) {
-        _collector = Collector(_settings)..start();
+        _startCollector();
         // 无障碍没开时提醒一次，解锁和前台应用采集都靠它。
         if (!await Collector.accessibilityEnabled() && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -57,12 +59,32 @@ class _HomeState extends State<Home> {
     });
   }
 
+  void _startCollector() {
+    if (_collector != null || !_settings.isConfigured) return;
+    final collector = Collector(_settings);
+    _collector = collector;
+    unawaited(collector.start());
+  }
+
+  void _onConnectionSaved() {
+    if (!mounted) return;
+    _startCollector();
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    final collector = _collector;
+    if (collector != null) unawaited(collector.dispose());
+    super.dispose();
+  }
+
   void _openConnection() {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SettingsPage(
           settings: _settings,
-          onSaved: () => setState(() {}),
+          onSaved: _onConnectionSaved,
         ),
       ),
     );
@@ -74,7 +96,7 @@ class _HomeState extends State<Home> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (!_settings.isConfigured) {
-      return SettingsPage(settings: _settings, onSaved: () => setState(() {}));
+      return SettingsPage(settings: _settings, onSaved: _onConnectionSaved);
     }
     return ChatPage(
       api: ChorusApi(_settings),

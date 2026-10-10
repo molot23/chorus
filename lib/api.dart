@@ -185,11 +185,15 @@ class ChorusApi {
   }
 
   /// 上报一条采集信号。ts 是采集发生的时间，不是上报时间。
-  Future<void> signal(String ts, String kind, Map<String, dynamic> data) async {
+  void close() => _client.close();
+
+  Future<void> signal(String ts, String kind, Map<String, dynamic> data,
+      {required String source, required String eventId}) async {
     final response = await _client.post(
       _uri('/api/signal'),
       headers: _headers,
-      body: jsonEncode({'ts': ts, 'kind': kind, 'data': data}),
+      body: jsonEncode({'observed_at': ts, 'kind': kind, 'data': data,
+        'source': source, 'event_id': eventId}),
     );
     if (response.statusCode != 200) _fail(response);
   }

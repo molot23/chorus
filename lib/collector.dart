@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:battery_plus/battery_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -12,6 +10,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
+import 'signal_queue.dart';
 
 /// 采集手机上能拿到的状态，离线时攒在本地，连上再逐条补发。
 ///
@@ -24,6 +23,9 @@ class Collector with WidgetsBindingObserver {
   static const _accessChannel = EventChannel('dev.chorus.chorus/access');
   static const _deviceChannel = MethodChannel('dev.chorus.chorus/device');
   var _started = false;
+  var _disposed = false;
+  final _subscriptions = <StreamSubscription<dynamic>>[];
+  final _timers = <Timer>[];
   String _lastApp = '';
 
   /// 每一种信号的上报开关，存在本机，默认都开。
@@ -71,7 +73,7 @@ class Collector with WidgetsBindingObserver {
   static Future<void> openUsageSettings() => _deviceChannel.invokeMethod('openUsageSettings');
 
   Future<void> start() async {
-    if (_started) return;
+    if (_started || _disposed) return;
     _started = true;
     WidgetsBinding.instance.addObserver(this);
 
@@ -100,9 +102,9 @@ class Collector with WidgetsBindingObserver {
     unawaited(flush());
 
     // 定位每 5 分钟记一次，不管动没动，用来判断停留。
-    Timer.periodic(const Duration(minutes: 5), (_) => _locate());
+    _timers.add(Timer.periodic(const Duration(minutes: 5), (_) => _locate()));
     // 后台也补发，不用等打开应用。前台服务保住进程，这个计时器才走得动。
-    Timer.periodic(const Duration(minutes: 2), (_) => flush());
+    _timers.add(Timer.periodic(const Duration(minutes: 2), (_) => flush()));
   }
 
   Future<void> _startLocation() async {
@@ -111,9 +113,9 @@ class Collector with WidgetsBindingObserver {
       permission = await Geolocator.requestPermission();
     }
     if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
-      Geolocator.getPositionStream(
+      _subscriptions.add(Geolocator.getPositionStream(
         locationSettings: const LocationSettings(distanceFilter: 100),
-      ).listen((position) => _saveLocation(position));
+      ).listen((position) => _saveLocation(position), onError: (Object _) {}));
     }
   }
 
@@ -131,7 +133,7 @@ class Collector with WidgetsBindingObserver {
 
   void _startBattery() {
     final battery = Battery();
-    battery.onBatteryStateChanged.listen((_) => _recordBattery(battery));
+    _subscriptions.add(battery.onBatteryStateChanged.listen((_) => _recordBattery(battery)));
     _recordBattery(battery);
   }
 
@@ -143,7 +145,7 @@ class Collector with WidgetsBindingObserver {
   }
 
   void _startNetwork() {
-    Connectivity().onConnectivityChanged.listen((results) async {
+    _subscriptions.add(Connectivity().onConnectivityChanged.listen((results) async {
       if (!await enabled('network')) return;
       final kind = results.contains(ConnectivityResult.wifi)
           ? 'wifi'
@@ -151,7 +153,7 @@ class Collector with WidgetsBindingObserver {
               ? 'mobile'
               : 'none';
       await _record('network', {'type': kind});
-    });
+    }));
   }
 
   /// 立刻采集一轮当前状态，调试用。不依赖后台服务是否在跑。
@@ -166,14 +168,11 @@ class Collector with WidgetsBindingObserver {
   }
 
   /// 还没发出去的信号条数。
-  static Future<int> pendingCount() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getStringList('signals')?.length ?? 0;
-  }
+  static Future<int> pendingCount() => SignalQueue.shared.pendingCount();
 
   /// 无障碍服务推过来的事件：解锁、亮灭屏、前台应用切换。服务没开时这里收不到任何东西。
   void _startAccess() {
-    _accessChannel.receiveBroadcastStream().listen((event) async {
+    _subscriptions.add(_accessChannel.receiveBroadcastStream().listen((event) async {
       final data = Map<String, dynamic>.from(event as Map);
       switch (data['kind']) {
         case 'unlock':
@@ -189,7 +188,7 @@ class Collector with WidgetsBindingObserver {
           _lastApp = name;
           await _record('app', {'name': name, 'label': data['label'] ?? name});
       }
-    });
+    }, onError: (Object _) {}));
   }
 
   /// 上报一次手机品牌和型号。
@@ -213,34 +212,34 @@ class Collector with WidgetsBindingObserver {
   }
 
   Future<void> _record(String kind, Map<String, dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
-    final pending = prefs.getStringList('signals') ?? [];
-    pending.add(jsonEncode({'ts': DateTime.now().toIso8601String(), 'kind': kind, 'data': data}));
-    await prefs.setStringList('signals', pending);
+    if (_disposed) return;
+    await SignalQueue.shared.enqueue(kind, data);
   }
 
-  /// 把积攒的信号逐条发出去，失败的留着下次再发。
   Future<void> flush() async {
-    if (!settings.isConfigured) return;
-    final prefs = await SharedPreferences.getInstance();
-    final pending = prefs.getStringList('signals') ?? [];
-    if (pending.isEmpty) return;
+    if (_disposed || !settings.isConfigured) return;
     final api = ChorusApi(settings);
-    final left = <String>[];
-    for (final raw in pending) {
-      try {
-        final item = jsonDecode(raw) as Map<String, dynamic>;
-        await api.signal(
-          item['ts'] as String,
-          item['kind'] as String,
-          (item['data'] as Map?)?.cast<String, dynamic>() ?? {},
-        );
-      } on SocketException {
-        left.add(raw);
-      } catch (_) {
-        // 服务器明确拒绝的丢掉，避免一条坏数据堵住后面的。
-      }
+    try {
+      await SignalQueue.shared.flush((item) => api.signal(
+        item['ts'] as String,
+        item['kind'] as String,
+        (item['data'] as Map).cast<String, dynamic>(),
+        source: item['source'] as String,
+        eventId: item['event_id'] as String,
+      ).timeout(const Duration(seconds: 30)), enabled: enabled);
+    } finally {
+      api.close();
     }
-    await prefs.setStringList('signals', left);
+  }
+
+  Future<void> dispose() async {
+    _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
+    for (final timer in _timers) {
+      timer.cancel();
+    }
+    for (final subscription in _subscriptions) {
+      await subscription.cancel();
+    }
   }
 }

@@ -556,11 +556,16 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
 
   String _stateText(String key) {
     final state = (_server?['state'] as Map?) ?? {};
-    final value = state[key];
-    if (value == null) return '未知';
-    if (value is bool) return value ? '是' : '否';
-    if (value is Map) return value.entries.map((e) => '${e.key} ${e.value}').join('，');
-    return '$value';
+    if (key == 'at') return '${state['at'] ?? '未知'}';
+    final dimensions = (state['dimensions'] as Map?) ?? {};
+    final fact = dimensions[key] as Map?;
+    if (fact == null || fact['freshness'] == 'unknown') return '未知';
+    if (fact['freshness'] == 'stale') return '已过期，当前未知（采集于 ${fact['observed_at']}）';
+    final value = fact['value'];
+    final text = value is Map
+        ? value.entries.map((e) => '${e.key} ${e.value}').join('，')
+        : '$value';
+    return '$text（采集于 ${fact['observed_at']}）';
   }
 
   (String, String, Map<String, dynamic>) _parse(Map item) {
@@ -667,10 +672,12 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
           ),
         ),
         const Divider(),
-        ListTile(title: const Text('服务端看到的状态'), subtitle: Text('更新于 ${_stateText('updated_at')}')),
-        ListTile(dense: true, title: Text('起床时间：${_stateText('woke_at')}')),
-        ListTile(dense: true, title: Text('手机在用：${_stateText('phone_in_use')}，电脑在用：${_stateText('computer_in_use')}')),
+        ListTile(title: const Text('服务端看到的状态'), subtitle: Text('更新时间 ${_stateText('at')}')),
+        ListTile(dense: true, title: Text('手机活动：${_stateText('phone_activity')}')),
+        ListTile(dense: true, title: Text('电脑活动：${_stateText('computer_activity')}')),
+        ListTile(dense: true, title: Text('前台应用：${_stateText('foreground_app')}')),
         ListTile(dense: true, title: Text('位置：${_stateText('location')}')),
+        ListTile(dense: true, title: Text('网络：${_stateText('network')}，电量：${_stateText('battery')}')),
         const Divider(),
         ListTile(
           title: const Text('服务端收到的信号'),
