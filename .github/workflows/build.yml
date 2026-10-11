@@ -2,13 +2,6 @@ name: 编译安卓安装包（已停用，改为本地编译）
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
-
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
