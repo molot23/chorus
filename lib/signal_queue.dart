@@ -25,13 +25,13 @@ class SignalQueue {
     }
   }
 
-  Future<void> enqueue(String kind, Map<String, dynamic> data) {
+  Future<void> enqueue(String kind, Map<String, dynamic> data, {DateTime? observedAt, String source = 'phone', String? eventId}) {
     final raw = jsonEncode({
-      'ts': DateTime.now().toUtc().toIso8601String(),
+      'ts': (observedAt ?? DateTime.now()).toUtc().toIso8601String(),
       'kind': kind,
       'data': data,
-      'source': 'phone',
-      'event_id': _newId(),
+      'source': source,
+      'event_id': eventId ?? _newId(),
     });
     return _mutate((prefs) async {
       final values = List<String>.of(prefs.getStringList('signals') ?? [])..add(raw);

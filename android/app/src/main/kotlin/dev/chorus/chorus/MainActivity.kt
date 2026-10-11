@@ -5,6 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
+import android.os.PowerManager
+import android.app.KeyguardManager
+import java.security.MessageDigest
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import io.flutter.embedding.android.FlutterActivity
@@ -111,6 +116,7 @@ class MainActivity : FlutterActivity() {
                     else true
                 )
                 "usageGranted" -> result.success(usageGranted())
+                "foregroundEvents" -> result.success(foregroundEvents(call.argument<Long>("sinceMs") ?: (System.currentTimeMillis() - 30_000L)))
                 "openUsageSettings" -> {
                     startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                     result.success(null)
@@ -123,11 +129,58 @@ class MainActivity : FlutterActivity() {
     /// 使用情况访问权限，用来读应用使用时长。
     private fun usageGranted(): Boolean {
         val appOps = getSystemService(APP_OPS_SERVICE) as android.app.AppOpsManager
-        val mode = appOps.unsafeCheckOpNoThrow(
-            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName
-        )
+        val mode = if (Build.VERSION.SDK_INT >= 29) {
+            appOps.unsafeCheckOpNoThrow(
+                android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            appOps.checkOpNoThrow(
+                android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName
+            )
+        }
         return mode == android.app.AppOpsManager.MODE_ALLOWED
     }
+
+    /** Reads a small overlapping window. UsageStats is the primary source; no screen content is read. */
+    private fun foregroundEvents(sinceMs: Long): List<Map<String, Any>> {
+        if (!usageGranted()) return emptyList()
+        val power = getSystemService(POWER_SERVICE) as PowerManager
+        val keyguard = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+        if (!power.isInteractive || keyguard.isKeyguardLocked) return emptyList()
+        val now = System.currentTimeMillis()
+        val begin = (sinceMs - 5_000L).coerceAtLeast(now - 15 * 60_000L)
+        val manager = getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
+        val events = manager.queryEvents(begin, now)
+        val event = UsageEvents.Event()
+        val result = mutableListOf<Map<String, Any>>()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            val resumed = if (Build.VERSION.SDK_INT >= 29) {
+                event.eventType == UsageEvents.Event.ACTIVITY_RESUMED
+            } else {
+                @Suppress("DEPRECATION")
+                event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND
+            }
+            if (!resumed || event.packageName.isNullOrBlank() || event.packageName == packageName) continue
+            val packageName = event.packageName
+            val label = try {
+                getPackageManager().getApplicationLabel(
+                    getPackageManager().getApplicationInfo(packageName, 0)
+                ).toString()
+            } catch (_: Exception) { packageName }
+            val observed = event.timeStamp
+            val eventId = sha256("usage:$packageName:${event.className ?: ""}:$observed")
+            result.add(mapOf(
+                "kind" to "app", "name" to packageName, "label" to label,
+                "observedAtMs" to observed, "eventId" to eventId, "source" to "usage_stats"
+            ))
+        }
+        return result.sortedBy { (it["observedAtMs"] as Long) }
+    }
+
+    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
 
     /// 无障碍权限只能由用户在系统设置里手动开，这里只判断开没开。
     private fun accessibilityEnabled(): Boolean {

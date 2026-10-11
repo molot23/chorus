@@ -22,6 +22,10 @@ class Collector with WidgetsBindingObserver {
   final Settings settings;
   static const _accessChannel = EventChannel('dev.chorus.chorus/access');
   static const _deviceChannel = MethodChannel('dev.chorus.chorus/device');
+  static const _lastWakeKey = 'last_wake_ms';
+  static const _lastInteractionKey = 'last_interaction_ms';
+  static const _wakeQuietHours = 4 * 60 * 60 * 1000;
+  static const _wakeCooldown = 20 * 60 * 60 * 1000;
   var _started = false;
   var _disposed = false;
   final _subscriptions = <StreamSubscription<dynamic>>[];
@@ -29,7 +33,16 @@ class Collector with WidgetsBindingObserver {
   String _lastApp = '';
 
   /// 每一种信号的上报开关，存在本机，默认都开。
-  static const kinds = ['unlock', 'screen', 'app', 'location', 'battery', 'network', 'device'];
+  static const kinds = [
+    'unlock',
+    'screen',
+    'app',
+    'wake',
+    'location',
+    'battery',
+    'network',
+    'device',
+  ];
 
   /// 某种信号是否允许上报。
   static Future<bool> enabled(String kind) async {
@@ -46,12 +59,16 @@ class Collector with WidgetsBindingObserver {
   /// 全部开关的当前状态。
   static Future<Map<String, bool>> switches() async {
     final prefs = await SharedPreferences.getInstance();
-    return {for (final kind in kinds) kind: prefs.getBool('collect_$kind') ?? true};
+    return {
+      for (final kind in kinds) kind: prefs.getBool('collect_$kind') ?? true,
+    };
   }
 
   /// 无障碍服务是否已开启。解锁和前台应用采集依赖它，只能用户手动开。
   static Future<bool> accessibilityEnabled() async {
-    final enabled = await _deviceChannel.invokeMethod<bool>('accessibilityEnabled');
+    final enabled = await _deviceChannel.invokeMethod<bool>(
+      'accessibilityEnabled',
+    );
     return enabled ?? false;
   }
 
@@ -60,17 +77,21 @@ class Collector with WidgetsBindingObserver {
       _deviceChannel.invokeMethod('openAccessibilitySettings');
 
   /// 跳到本应用的系统设置页。
-  static Future<void> openAppSettings() => _deviceChannel.invokeMethod('openAppSettings');
+  static Future<void> openAppSettings() =>
+      _deviceChannel.invokeMethod('openAppSettings');
 
   /// 定位和通知权限的授予情况。
   static Future<Map<String, bool>> permissions() async => {
-        'location': await _deviceChannel.invokeMethod<bool>('locationGranted') ?? false,
-        'notification': await _deviceChannel.invokeMethod<bool>('notificationGranted') ?? false,
-        'usage': await _deviceChannel.invokeMethod<bool>('usageGranted') ?? false,
-      };
+    'location':
+        await _deviceChannel.invokeMethod<bool>('locationGranted') ?? false,
+    'notification':
+        await _deviceChannel.invokeMethod<bool>('notificationGranted') ?? false,
+    'usage': await _deviceChannel.invokeMethod<bool>('usageGranted') ?? false,
+  };
 
   /// 跳到使用情况访问的设置页。
-  static Future<void> openUsageSettings() => _deviceChannel.invokeMethod('openUsageSettings');
+  static Future<void> openUsageSettings() =>
+      _deviceChannel.invokeMethod('openUsageSettings');
 
   Future<void> start() async {
     if (_started || _disposed) return;
@@ -85,7 +106,9 @@ class Collector with WidgetsBindingObserver {
         onlyAlertOnce: true,
       ),
       iosNotificationOptions: const IOSNotificationOptions(),
-      foregroundTaskOptions: ForegroundTaskOptions(eventAction: ForegroundTaskEventAction.nothing()),
+      foregroundTaskOptions: ForegroundTaskOptions(
+        eventAction: ForegroundTaskEventAction.nothing(),
+      ),
     );
     if (await FlutterForegroundTask.isRunningService == false) {
       await FlutterForegroundTask.startService(
@@ -112,10 +135,13 @@ class Collector with WidgetsBindingObserver {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-    if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
-      _subscriptions.add(Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(distanceFilter: 100),
-      ).listen((position) => _saveLocation(position), onError: (Object _) {}));
+    if (permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse) {
+      _subscriptions.add(
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(distanceFilter: 100),
+        ).listen((position) => _saveLocation(position), onError: (Object _) {}),
+      );
     }
   }
 
@@ -128,12 +154,17 @@ class Collector with WidgetsBindingObserver {
 
   Future<void> _saveLocation(Position position) async {
     if (!await enabled('location')) return;
-    await _record('location', {'lat': position.latitude, 'lon': position.longitude});
+    await _record('location', {
+      'lat': position.latitude,
+      'lon': position.longitude,
+    });
   }
 
   void _startBattery() {
     final battery = Battery();
-    _subscriptions.add(battery.onBatteryStateChanged.listen((_) => _recordBattery(battery)));
+    _subscriptions.add(
+      battery.onBatteryStateChanged.listen((_) => _recordBattery(battery)),
+    );
     _recordBattery(battery);
   }
 
@@ -141,19 +172,24 @@ class Collector with WidgetsBindingObserver {
     if (!await enabled('battery')) return;
     final level = await battery.batteryLevel;
     final state = await battery.batteryState;
-    _record('battery', {'level': level, 'charging': state == BatteryState.charging});
+    _record('battery', {
+      'level': level,
+      'charging': state == BatteryState.charging,
+    });
   }
 
   void _startNetwork() {
-    _subscriptions.add(Connectivity().onConnectivityChanged.listen((results) async {
-      if (!await enabled('network')) return;
-      final kind = results.contains(ConnectivityResult.wifi)
-          ? 'wifi'
-          : results.contains(ConnectivityResult.mobile)
-              ? 'mobile'
-              : 'none';
-      await _record('network', {'type': kind});
-    }));
+    _subscriptions.add(
+      Connectivity().onConnectivityChanged.listen((results) async {
+        if (!await enabled('network')) return;
+        final kind = results.contains(ConnectivityResult.wifi)
+            ? 'wifi'
+            : results.contains(ConnectivityResult.mobile)
+            ? 'mobile'
+            : 'none';
+        await _record('network', {'type': kind});
+      }),
+    );
   }
 
   /// 立刻采集一轮当前状态，调试用。不依赖后台服务是否在跑。
@@ -172,23 +208,67 @@ class Collector with WidgetsBindingObserver {
 
   /// 无障碍服务推过来的事件：解锁、亮灭屏、前台应用切换。服务没开时这里收不到任何东西。
   void _startAccess() {
-    _subscriptions.add(_accessChannel.receiveBroadcastStream().listen((event) async {
-      final data = Map<String, dynamic>.from(event as Map);
-      switch (data['kind']) {
-        case 'unlock':
-          if (!await enabled('unlock')) return;
-          await _record('unlock', {});
-        case 'screen':
-          if (!await enabled('screen')) return;
-          await _record('screen', {'state': data['state']});
-        case 'app':
-          if (!await enabled('app')) return;
-          final name = data['name'] as String? ?? '';
-          if (name == _lastApp) return;
-          _lastApp = name;
-          await _record('app', {'name': name, 'label': data['label'] ?? name});
-      }
-    }, onError: (Object _) {}));
+    _subscriptions.add(
+      _accessChannel.receiveBroadcastStream().listen((event) async {
+        final data = Map<String, dynamic>.from(event as Map);
+        final kind = data['kind'];
+        if (kind == 'unlock' || kind == 'app') {
+          await _maybeRecordWake(kind as String, data);
+        }
+        switch (kind) {
+          case 'unlock':
+            if (!await enabled('unlock')) return;
+            await _record('unlock', {}, observedAt: _eventTime(data));
+          case 'screen':
+            if (!await enabled('screen')) return;
+            await _record('screen', {
+              'state': data['state'],
+            }, observedAt: _eventTime(data));
+          case 'app':
+            if (!await enabled('app')) return;
+            final name = data['name'] as String? ?? '';
+            if (name == _lastApp) return;
+            _lastApp = name;
+            await _record('app', {
+              'name': name,
+              'label': data['label'] ?? name,
+            }, observedAt: _eventTime(data));
+        }
+      }, onError: (Object _) {}),
+    );
+  }
+
+  DateTime _eventTime(Map<String, dynamic> data) {
+    final value = data['observedAtMs'];
+    return value is num
+        ? DateTime.fromMillisecondsSinceEpoch(value.toInt())
+        : DateTime.now();
+  }
+
+  Future<void> _maybeRecordWake(String kind, Map<String, dynamic> data) async {
+    if (!await enabled('wake')) return;
+    final now = _eventTime(data);
+    final prefs = await SharedPreferences.getInstance();
+    final lastInteraction = prefs.getInt(_lastInteractionKey);
+    final lastWake = prefs.getInt(_lastWakeKey);
+    final ms = now.millisecondsSinceEpoch;
+    final quietEnough =
+        lastInteraction == null || ms - lastInteraction >= _wakeQuietHours;
+    final cooldownPassed = lastWake == null || ms - lastWake >= _wakeCooldown;
+    if (quietEnough && cooldownPassed) {
+      await prefs.setInt(_lastWakeKey, ms);
+      await _record(
+        'wake',
+        {
+          'trigger': kind,
+          'confidence': kind == 'unlock' ? 'high' : 'medium',
+          'reason': 'after_quiet_period',
+        },
+        observedAt: now,
+        eventId: 'wake:$ms',
+      );
+    }
+    await prefs.setInt(_lastInteractionKey, ms);
   }
 
   /// 上报一次手机品牌和型号。
@@ -211,22 +291,39 @@ class Collector with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) unawaited(flush());
   }
 
-  Future<void> _record(String kind, Map<String, dynamic> data) async {
+  Future<void> _record(
+    String kind,
+    Map<String, dynamic> data, {
+    DateTime? observedAt,
+    String? eventId,
+    String source = 'phone',
+  }) async {
     if (_disposed) return;
-    await SignalQueue.shared.enqueue(kind, data);
+    await SignalQueue.shared.enqueue(
+      kind,
+      data,
+      observedAt: observedAt,
+      eventId: eventId,
+      source: source,
+    );
   }
 
   Future<void> flush() async {
     if (_disposed || !settings.isConfigured) return;
     final api = ChorusApi(settings);
     try {
-      await SignalQueue.shared.flush((item) => api.signal(
-        item['ts'] as String,
-        item['kind'] as String,
-        (item['data'] as Map).cast<String, dynamic>(),
-        source: item['source'] as String,
-        eventId: item['event_id'] as String,
-      ).timeout(const Duration(seconds: 30)), enabled: enabled);
+      await SignalQueue.shared.flush(
+        (item) => api
+            .signal(
+              item['ts'] as String,
+              item['kind'] as String,
+              (item['data'] as Map).cast<String, dynamic>(),
+              source: item['source'] as String,
+              eventId: item['event_id'] as String,
+            )
+            .timeout(const Duration(seconds: 30)),
+        enabled: enabled,
+      );
     } finally {
       api.close();
     }
