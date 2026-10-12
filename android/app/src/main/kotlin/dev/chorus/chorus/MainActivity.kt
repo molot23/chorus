@@ -79,6 +79,15 @@ class ChorusAccessibilityService : android.accessibilityservice.AccessibilitySer
 }
 
 class MainActivity : FlutterActivity() {
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra("chorus_message", false)) {
+            flutterEngine?.dartExecutor?.binaryMessenger?.let {
+                MethodChannel(it, "dev.chorus.chorus/device").invokeMethod("openChatFromNotification", null)
+            }
+        }
+    }
+
     override fun onStart() {
         super.onStart()
         val messenger = flutterEngine?.dartExecutor?.binaryMessenger ?: return
@@ -115,6 +124,17 @@ class MainActivity : FlutterActivity() {
                             android.content.pm.PackageManager.PERMISSION_GRANTED
                     else true
                 )
+                "startMessageReceiver" -> {
+                    val host = call.argument<String>("host") ?: ""
+                    val token = call.argument<String>("token") ?: ""
+                    if (host.isNotBlank() && token.isNotBlank()) {
+                        MessageReceiverService.configure(this, host, token)
+                        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 740)
+                        }
+                    }
+                    result.success(null)
+                }
                 "usageGranted" -> result.success(usageGranted())
                 "foregroundEvents" -> result.success(foregroundEvents(call.argument<Long>("sinceMs") ?: (System.currentTimeMillis() - 30_000L)))
                 "openUsageSettings" -> {

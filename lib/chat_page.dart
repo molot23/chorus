@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 
 import 'api.dart';
 import 'models.dart';
@@ -17,7 +18,8 @@ const _fallbackColors = [
 ];
 
 Color colorOf(String name) =>
-    _roleColors[name] ?? _fallbackColors[name.hashCode.abs() % _fallbackColors.length];
+    _roleColors[name] ??
+    _fallbackColors[name.hashCode.abs() % _fallbackColors.length];
 
 class ChatPage extends StatefulWidget {
   const ChatPage({
@@ -35,7 +37,10 @@ class ChatPage extends StatefulWidget {
   State<ChatPage> createState() => _ChatPageState();
 }
 
-class _ChatPageState extends State<ChatPage> {
+class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
+  Timer? _refreshTimer;
+  bool _refreshing = false;
+  bool _visible = true;
   final _input = TextEditingController();
   final _scroll = ScrollController();
 
@@ -49,11 +54,18 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _refreshMessages(),
+    );
     _load();
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -78,6 +90,30 @@ class _ChatPageState extends State<ChatPage> {
         _error = '连接不上服务器：$e';
         _loading = false;
       });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _visible = state == AppLifecycleState.resumed;
+    if (_visible) unawaited(_refreshMessages());
+  }
+
+  Future<void> _refreshMessages() async {
+    if (!mounted || !_visible || _sending || _loading || _refreshing) return;
+    _refreshing = true;
+    try {
+      final messages = await widget.api.messages().timeout(
+        const Duration(seconds: 20),
+      );
+      if (!mounted || _sending) return;
+      final nearEnd = !_scroll.hasClients || _scroll.position.extentAfter < 100;
+      setState(() => _messages = messages);
+      if (nearEnd) _scrollToEnd();
+    } catch (_) {
+      // Keep the displayed chat while disconnected; the next refresh retries.
+    } finally {
+      _refreshing = false;
     }
   }
 
@@ -204,8 +240,10 @@ class _ChatPageState extends State<ChatPage> {
           ),
           IconButton(
             onPressed: () => setState(() => _debug = !_debug),
-            icon: Icon(Icons.bug_report_outlined,
-                color: _debug ? Theme.of(context).colorScheme.primary : null),
+            icon: Icon(
+              Icons.bug_report_outlined,
+              color: _debug ? Theme.of(context).colorScheme.primary : null,
+            ),
             tooltip: '调试',
           ),
           IconButton(
@@ -228,13 +266,19 @@ class _ChatPageState extends State<ChatPage> {
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
                 _status!,
-                style: TextStyle(color: Theme.of(context).hintColor, fontSize: 12),
+                style: TextStyle(
+                  color: Theme.of(context).hintColor,
+                  fontSize: 12,
+                ),
               ),
             ),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+              child: Text(
+                _error!,
+                style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+              ),
             ),
           _InputBar(controller: _input, sending: _sending, onSend: _send),
         ],
@@ -253,7 +297,8 @@ class _ChatPageState extends State<ChatPage> {
       controller: _scroll,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       itemCount: _messages.length,
-      itemBuilder: (context, index) => _Bubble(message: _messages[index], debug: _debug),
+      itemBuilder: (context, index) =>
+          _Bubble(message: _messages[index], debug: _debug),
     );
   }
 }
@@ -278,11 +323,15 @@ class _Bubble extends StatelessWidget {
       );
     }
     final mine = message.isMine;
-    final color = mine ? Theme.of(context).colorScheme.primaryContainer : colorOf(message.speaker);
+    final color = mine
+        ? Theme.of(context).colorScheme.primaryContainer
+        : colorOf(message.speaker);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        mainAxisAlignment: mine ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: mine
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!mine) ...[
@@ -298,7 +347,9 @@ class _Bubble extends StatelessWidget {
           ],
           Flexible(
             child: Column(
-              crossAxisAlignment: mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              crossAxisAlignment: mine
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
               children: [
                 if (!mine)
                   Padding(
@@ -309,7 +360,10 @@ class _Bubble extends StatelessWidget {
                     ),
                   ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: mine ? color : color.withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(14),
@@ -336,13 +390,20 @@ class _DebugInfo extends StatelessWidget {
     if (message.debug.trim().isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 4),
-      child: Text(message.debug, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      child: Text(
+        message.debug,
+        style: const TextStyle(fontSize: 11, color: Colors.grey),
+      ),
     );
   }
 }
 
 class _InputBar extends StatelessWidget {
-  const _InputBar({required this.controller, required this.sending, required this.onSend});
+  const _InputBar({
+    required this.controller,
+    required this.sending,
+    required this.onSend,
+  });
 
   final TextEditingController controller;
   final bool sending;

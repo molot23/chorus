@@ -1,12 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:io';
 
 import 'api.dart';
 import 'chat_page.dart';
 import 'collector.dart';
 import 'server_settings_page.dart';
 import 'settings_page.dart';
+
+final _navigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   runApp(const ChorusApp());
@@ -18,6 +22,7 @@ class ChorusApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'Chorus',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF7BA17D)),
@@ -43,6 +48,15 @@ class _HomeState extends State<Home> {
   @override
   void initState() {
     super.initState();
+    if (Platform.isAndroid) {
+      const MethodChannel('dev.chorus.chorus/device').setMethodCallHandler((
+        call,
+      ) async {
+        if (call.method == 'openChatFromNotification') {
+          _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+        }
+      });
+    }
     _settings.load().then((_) async {
       if (!mounted) return;
       setState(() => _ready = true);
@@ -50,17 +64,31 @@ class _HomeState extends State<Home> {
         _startCollector();
         // 无障碍没开时提醒一次，解锁和前台应用采集都靠它。
         if (!await Collector.accessibilityEnabled() && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: const Text('解锁和前台应用采集需要开启无障碍服务'),
-            action: SnackBarAction(label: '去开启', onPressed: Collector.openAccessibilitySettings),
-          ));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('解锁和前台应用采集需要开启无障碍服务'),
+              action: SnackBarAction(
+                label: '去开启',
+                onPressed: Collector.openAccessibilitySettings,
+              ),
+            ),
+          );
         }
       }
     });
   }
 
   void _startCollector() {
-    if (_collector != null || !_settings.isConfigured) return;
+    if (!_settings.isConfigured) return;
+    if (Platform.isAndroid) {
+      unawaited(
+        const MethodChannel('dev.chorus.chorus/device').invokeMethod(
+          'startMessageReceiver',
+          {'host': _settings.host, 'token': _settings.token},
+        ),
+      );
+    }
+    if (_collector != null) return;
     final collector = Collector(_settings);
     _collector = collector;
     unawaited(collector.start());
@@ -82,10 +110,8 @@ class _HomeState extends State<Home> {
   void _openConnection() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SettingsPage(
-          settings: _settings,
-          onSaved: _onConnectionSaved,
-        ),
+        builder: (_) =>
+            SettingsPage(settings: _settings, onSaved: _onConnectionSaved),
       ),
     );
   }
@@ -102,7 +128,10 @@ class _HomeState extends State<Home> {
       api: ChorusApi(_settings),
       onOpenSettings: (context) => Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => ServerSettingsPage(api: ChorusApi(_settings), connection: _settings),
+          builder: (_) => ServerSettingsPage(
+            api: ChorusApi(_settings),
+            connection: _settings,
+          ),
         ),
       ),
       onOpenConnection: _openConnection,
