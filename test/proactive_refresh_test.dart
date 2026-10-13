@@ -9,7 +9,7 @@ class FakeApi extends ChorusApi {
   int reads = 0;
   bool offline = false;
   @override
-  Future<List<ChatMessage>> messages() async {
+  Future<List<ChatMessage>> messages({int? afterId}) async {
     reads++;
     if (offline) throw StateError('offline');
     return [

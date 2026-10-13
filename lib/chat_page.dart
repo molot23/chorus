@@ -101,14 +101,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   Future<void> _refreshMessages() async {
     if (!mounted || !_visible || _sending || _loading || _refreshing) return;
+    if (_messages.isEmpty) return _load();
     _refreshing = true;
     try {
-      final messages = await widget.api.messages().timeout(
-        const Duration(seconds: 20),
-      );
-      if (!mounted || _sending) return;
+      final latest = await widget.api
+          .messages(afterId: _messages.last.id)
+          .timeout(const Duration(seconds: 20));
+      if (!mounted || _sending || latest.isEmpty) return;
       final nearEnd = !_scroll.hasClients || _scroll.position.extentAfter < 100;
-      setState(() => _messages = messages);
+      setState(() {
+        final ids = _messages.map((m) => m.id).toSet();
+        _messages = [..._messages, ...latest.where((m) => ids.add(m.id))];
+      });
       if (nearEnd) _scrollToEnd();
     } catch (_) {
       // Keep the displayed chat while disconnected; the next refresh retries.
