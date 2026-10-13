@@ -7,3 +7,8 @@ Enable notification permission and allow background operation in phone system se
 The deployed self-signed server certificate is pinned to its SSH-verified SHA256; certificate renewal requires updating the pin. Other servers retain default platform TLS validation. Credentials remain app-private and are never logged.
 
 Verified: Flutter analysis, widget tests for silent refresh/offline recovery, release compilation. No Android device is attached; notification display, lockscreen timing, tapping and restart behavior still require device verification. Existing server wake/task creation and Xiaomi preflight were verified separately; no user message is fabricated for a test.
+
+
+## Motion collection
+
+Version 0.4.0 samples the accelerometer every 30 seconds and reports x/y/z orientation; the server's personal-state producer uses it as sleep evidence. Sensor data is raw orientation only; no location is required for this evidence. App build/test/analyze passed.

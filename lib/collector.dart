@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 
 import 'api.dart';
 import 'signal_queue.dart';
@@ -39,6 +40,7 @@ class Collector with WidgetsBindingObserver {
     'app',
     'wake',
     'location',
+    'motion',
     'battery',
     'network',
     'device',
@@ -117,6 +119,7 @@ class Collector with WidgetsBindingObserver {
       );
     }
 
+    _startMotion();
     _startLocation();
     _startBattery();
     _startNetwork();
@@ -128,6 +131,29 @@ class Collector with WidgetsBindingObserver {
     _timers.add(Timer.periodic(const Duration(minutes: 5), (_) => _locate()));
     // 后台也补发，不用等打开应用。前台服务保住进程，这个计时器才走得动。
     _timers.add(Timer.periodic(const Duration(minutes: 2), (_) => flush()));
+  }
+
+  void _startMotion() {
+    _subscriptions.add(
+      accelerometerEventStream(
+        samplingPeriod: const Duration(seconds: 30),
+      ).listen((event) {
+        unawaited(_recordMotion(event));
+      }, onError: (Object _) {}),
+    );
+  }
+
+  Future<void> _recordMotion(AccelerometerEvent event) async {
+    if (!await enabled('motion')) return;
+    final magnitude =
+        (event.x * event.x + event.y * event.y + event.z * event.z).toDouble();
+    await _record('motion', {
+      'x': event.x,
+      'y': event.y,
+      'z': event.z,
+      'magnitude': magnitude,
+      'sampling_period_sec': 30,
+    });
   }
 
   Future<void> _startLocation() async {
@@ -198,6 +224,11 @@ class Collector with WidgetsBindingObserver {
     await settings.load();
     final collector = Collector(settings);
     await collector._locate();
+    await collector._recordMotion(
+      await accelerometerEventStream(
+        samplingPeriod: const Duration(seconds: 1),
+      ).first,
+    );
     await collector._recordBattery(Battery());
     await collector._reportDevice();
     await collector.flush();
