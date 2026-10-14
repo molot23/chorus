@@ -133,7 +133,15 @@ class Collector with WidgetsBindingObserver {
     // 定位每 5 分钟记一次，不管动没动，用来判断停留。
     _timers.add(Timer.periodic(const Duration(minutes: 5), (_) => _locate()));
     // 后台也补发，不用等打开应用。前台服务保住进程，这个计时器才走得动。
-    _timers.add(Timer.periodic(const Duration(minutes: 2), (_) => flush()));
+    unawaited(_startFlushTimer());
+  }
+
+  Future<void> _startFlushTimer() async {
+    final prefs = await SharedPreferences.getInstance();
+    final seconds = prefs.getInt('collect_flush_seconds') ?? 120;
+    _timers.add(
+      Timer.periodic(Duration(seconds: seconds.clamp(60, 600)), (_) => flush()),
+    );
   }
 
   Future<void> _startLocation() async {

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter/material.dart';
 
@@ -10,7 +11,11 @@ import 'update.dart';
 
 /// 设置页：左边分类，右边内容。加新设置项就是加一个分类。
 class ServerSettingsPage extends StatefulWidget {
-  const ServerSettingsPage({super.key, required this.api, required this.connection});
+  const ServerSettingsPage({
+    super.key,
+    required this.api,
+    required this.connection,
+  });
 
   final ChorusApi api;
   final Settings connection;
@@ -93,7 +98,11 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
             onDestinationSelected: (i) => setState(() => _index = i),
             labelType: NavigationRailLabelType.all,
             destinations: [
-              for (final name in _categories) NavigationRailDestination(icon: const Icon(Icons.circle), label: Text(name)),
+              for (final name in _categories)
+                NavigationRailDestination(
+                  icon: const Icon(Icons.circle),
+                  label: Text(name),
+                ),
             ],
           ),
           const VerticalDivider(width: 1),
@@ -105,10 +114,15 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
 
   Widget _body() {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null && _settings == null) return Center(child: Text(_error!));
+    if (_error != null && _settings == null) {
+      return Center(child: Text(_error!));
+    }
     switch (_index) {
       case 0:
-        return SettingsPage(settings: widget.connection, onSaved: () => setState(() {}));
+        return SettingsPage(
+          settings: widget.connection,
+          onSaved: () => setState(() {}),
+        );
       case 1:
         return _modelPage();
       case 2:
@@ -138,15 +152,19 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
 
   Widget _backendTile(String label, String key, {bool allowEmpty = false}) {
     final current = _settings?[key];
-    final value = (current == null || current.toString().isEmpty) ? '' : current.toString();
+    final value = (current == null || current.toString().isEmpty)
+        ? ''
+        : current.toString();
     return ListTile(
       title: Text(label),
       subtitle: DropdownButton<String>(
         isExpanded: true,
         value: value,
         items: [
-          if (allowEmpty) const DropdownMenuItem(value: '', child: Text('跟生成用同一个')),
-          for (final b in _backends) DropdownMenuItem(value: '${b.id}', child: Text(b.label)),
+          if (allowEmpty)
+            const DropdownMenuItem(value: '', child: Text('跟生成用同一个')),
+          for (final b in _backends)
+            DropdownMenuItem(value: '${b.id}', child: Text(b.label)),
         ],
         onChanged: (v) {
           if (v != null) _save({key: v.isEmpty ? '' : int.parse(v)});
@@ -165,13 +183,12 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
             max: 20,
             divisions: 19,
             value: ((_settings?['director_rounds'] ?? 5) as num).toDouble(),
-            onChanged: (v) => setState(() => _settings?['director_rounds'] = v.round()),
+            onChanged: (v) =>
+                setState(() => _settings?['director_rounds'] = v.round()),
             onChangeEnd: (v) => _save({'director_rounds': v.round()}),
           ),
         ),
-        const ListTile(
-          title: Text('导演怎么看这个群'),
-        ),
+        const ListTile(title: Text('导演怎么看这个群')),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: TextField(
@@ -185,7 +202,10 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
         ),
         Align(
           alignment: Alignment.centerRight,
-          child: TextButton(onPressed: () => _save({'director_prompt': _guide.text}), child: const Text('保存')),
+          child: TextButton(
+            onPressed: () => _save({'director_prompt': _guide.text}),
+            child: const Text('保存'),
+          ),
         ),
         ListTile(
           leading: const Icon(Icons.archive_outlined),
@@ -205,8 +225,14 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
         title: const Text('归档这段对话？'),
         content: const Text('当前对话会从界面收起，保存到「归档」里，随时可以回看。'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('归档')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('归档'),
+          ),
         ],
       ),
     );
@@ -236,7 +262,10 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
                       const SizedBox(height: 12),
                       const Text('日记', style: TextStyle(color: Colors.grey)),
                       const SizedBox(height: 4),
-                      Text(role.memories.trim(), style: const TextStyle(fontSize: 13)),
+                      Text(
+                        role.memories.trim(),
+                        style: const TextStyle(fontSize: 13),
+                      ),
                     ],
                   ],
                 ),
@@ -284,9 +313,9 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
   }
 
   Widget _errorText() => Padding(
-        padding: const EdgeInsets.all(16),
-        child: Text(_error!, style: const TextStyle(color: Colors.redAccent)),
-      );
+    padding: const EdgeInsets.all(16),
+    child: Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+  );
 }
 
 class _HistoryPage extends StatefulWidget {
@@ -305,11 +334,14 @@ class _HistoryPageState extends State<_HistoryPage> {
   @override
   void initState() {
     super.initState();
-    widget.api.history().then((list) {
-      if (mounted) setState(() => _list = list);
-    }).catchError((e) {
-      if (mounted) setState(() => _error = '$e');
-    });
+    widget.api
+        .history()
+        .then((list) {
+          if (mounted) setState(() => _list = list);
+        })
+        .catchError((e) {
+          if (mounted) setState(() => _error = '$e');
+        });
   }
 
   @override
@@ -319,18 +351,20 @@ class _HistoryPageState extends State<_HistoryPage> {
       body: _error != null
           ? Center(child: Text(_error!))
           : _list == null
-              ? const Center(child: CircularProgressIndicator())
-              : ListView.builder(
-                  itemCount: _list!.length,
-                  itemBuilder: (context, index) {
-                    final m = _list![index];
-                    return ListTile(
-                      dense: true,
-                      title: Text('${m.speaker}：${m.content}'),
-                      subtitle: m.ts == null ? null : Text(m.ts!, style: const TextStyle(fontSize: 11)),
-                    );
-                  },
-                ),
+          ? const Center(child: CircularProgressIndicator())
+          : ListView.builder(
+              itemCount: _list!.length,
+              itemBuilder: (context, index) {
+                final m = _list![index];
+                return ListTile(
+                  dense: true,
+                  title: Text('${m.speaker}：${m.content}'),
+                  subtitle: m.ts == null
+                      ? null
+                      : Text(m.ts!, style: const TextStyle(fontSize: 11)),
+                );
+              },
+            ),
     );
   }
 }
@@ -371,8 +405,14 @@ class _ArchivePageState extends State<_ArchivePage> {
         title: const Text('彻底删除这段？'),
         content: const Text('删除后无法恢复。'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('删除')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
         ],
       ),
     );
@@ -388,9 +428,13 @@ class _ArchivePageState extends State<_ArchivePage> {
   @override
   Widget build(BuildContext context) {
     if (_error != null) return Center(child: Text(_error!));
-    if (_segments == null) return const Center(child: CircularProgressIndicator());
+    if (_segments == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (_segments!.isEmpty) {
-      return const Center(child: Text('还没有归档的对话', style: TextStyle(color: Colors.grey)));
+      return const Center(
+        child: Text('还没有归档的对话', style: TextStyle(color: Colors.grey)),
+      );
     }
     return ListView.builder(
       itemCount: _segments!.length,
@@ -404,7 +448,10 @@ class _ArchivePageState extends State<_ArchivePage> {
           subtitle: Text('$n 条消息'),
           onTap: () => Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => _SegmentPage(api: widget.api, segment: segment, title: ts)),
+            MaterialPageRoute(
+              builder: (_) =>
+                  _SegmentPage(api: widget.api, segment: segment, title: ts),
+            ),
           ),
           trailing: IconButton(
             icon: const Icon(Icons.delete_outline),
@@ -418,7 +465,11 @@ class _ArchivePageState extends State<_ArchivePage> {
 }
 
 class _SegmentPage extends StatefulWidget {
-  const _SegmentPage({required this.api, required this.segment, required this.title});
+  const _SegmentPage({
+    required this.api,
+    required this.segment,
+    required this.title,
+  });
 
   final ChorusApi api;
   final int segment;
@@ -435,36 +486,44 @@ class _SegmentPageState extends State<_SegmentPage> {
   @override
   void initState() {
     super.initState();
-    widget.api.segmentMessages(widget.segment).then((list) {
-      if (mounted) setState(() => _list = list);
-    }).catchError((e) {
-      if (mounted) setState(() => _error = '$e');
-    });
+    widget.api
+        .segmentMessages(widget.segment)
+        .then((list) {
+          if (mounted) setState(() => _list = list);
+        })
+        .catchError((e) {
+          if (mounted) setState(() => _error = '$e');
+        });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title.isEmpty ? '第 ${widget.segment} 段' : widget.title)),
+      appBar: AppBar(
+        title: Text(
+          widget.title.isEmpty ? '第 ${widget.segment} 段' : widget.title,
+        ),
+      ),
       body: _error != null
           ? Center(child: Text(_error!))
           : _list == null
-              ? const Center(child: CircularProgressIndicator())
-              : ListView.builder(
-                  itemCount: _list!.length,
-                  itemBuilder: (context, index) {
-                    final m = _list![index];
-                    return ListTile(
-                      dense: true,
-                      title: Text('${m.speaker}：${m.content}'),
-                      subtitle: m.ts == null ? null : Text(m.ts!, style: const TextStyle(fontSize: 11)),
-                    );
-                  },
-                ),
+          ? const Center(child: CircularProgressIndicator())
+          : ListView.builder(
+              itemCount: _list!.length,
+              itemBuilder: (context, index) {
+                final m = _list![index];
+                return ListTile(
+                  dense: true,
+                  title: Text('${m.speaker}：${m.content}'),
+                  subtitle: m.ts == null
+                      ? null
+                      : Text(m.ts!, style: const TextStyle(fontSize: 11)),
+                );
+              },
+            ),
     );
   }
 }
-
 
 /// 本机调试：上报开关、权限状态、服务端收到的信号。
 class _LocalDebugPage extends StatefulWidget {
@@ -476,7 +535,8 @@ class _LocalDebugPage extends StatefulWidget {
   State<_LocalDebugPage> createState() => _LocalDebugPageState();
 }
 
-class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObserver {
+class _LocalDebugPageState extends State<_LocalDebugPage>
+    with WidgetsBindingObserver {
   static const _kindLabels = {
     'unlock': '解锁',
     'screen': '亮灭屏',
@@ -494,6 +554,9 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
   Map<String, dynamic>? _server;
   String? _error;
   var _busy = false;
+  List<Map<String, dynamic>> _localLog = [];
+  int _flushSeconds = 120;
+  static const _logKey = 'local_collection_log';
 
   @override
   void initState() {
@@ -522,6 +585,7 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
         Collector.switches(),
         Collector.pendingCount(),
         widget.api.debugInfo(),
+        SharedPreferences.getInstance(),
       ]);
       if (!mounted) return;
       setState(() {
@@ -530,11 +594,30 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
         _switches = results[2] as Map<String, bool>;
         _pending = results[3] as int;
         _server = results[4] as Map<String, dynamic>;
+        final prefs = results[5] as SharedPreferences;
+        _localLog = [
+          for (final raw in prefs.getStringList(_logKey) ?? [])
+            tryParseLog(raw),
+        ].whereType<Map<String, dynamic>>().toList().reversed.toList();
         _error = null;
       });
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
+  }
+
+  Map<String, dynamic>? tryParseLog(String raw) {
+    try {
+      return (jsonDecode(raw) as Map).cast<String, dynamic>();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _setFlushSeconds(int value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('collect_flush_seconds', value);
+    if (mounted) setState(() => _flushSeconds = value);
   }
 
   Future<void> _toggle(String kind, bool value) async {
@@ -560,7 +643,9 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
     final dimensions = (state['dimensions'] as Map?) ?? {};
     final fact = dimensions[key] as Map?;
     if (fact == null || fact['freshness'] == 'unknown') return '未知';
-    if (fact['freshness'] == 'stale') return '已过期，当前未知（采集于 ${fact['observed_at']}）';
+    if (fact['freshness'] == 'stale') {
+      return '???????????? ${fact['observed_at']}?';
+    }
     final value = fact['value'];
     final text = value is Map
         ? value.entries.map((e) => '${e.key} ${e.value}').join('，')
@@ -609,25 +694,26 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
   }
 
   /// 时间只留月日和时分秒，去掉年份和毫秒。
-  String _time(String ts) => ts.length < 19 ? ts : ts.substring(5, 19).replaceFirst('T', ' ');
+  String _time(String ts) =>
+      ts.length < 19 ? ts : ts.substring(5, 19).replaceFirst('T', ' ');
 
   @override
   Widget build(BuildContext context) {
     final signals = [
-      for (final item in ((_server?['signals'] as List?) ?? []).cast<Map>()) _parse(item),
+      for (final item in ((_server?['signals'] as List?) ?? []).cast<Map>())
+        _parse(item),
     ];
     final counts = <String, int>{};
     for (final signal in signals) {
       counts[signal.$1] = (counts[signal.$1] ?? 0) + 1;
     }
-    final summary = counts.entries.map((e) => '${_kindLabels[e.key] ?? e.key} ${e.value}').join('，');
+    final summary = counts.entries
+        .map((e) => '${_kindLabels[e.key] ?? e.key} ${e.value}')
+        .join('，');
 
     return ListView(
       children: [
-        const ListTile(
-          title: Text('上报开关'),
-          subtitle: Text('关掉的不再采集，也不再上报'),
-        ),
+        const ListTile(title: Text('上报开关'), subtitle: Text('关掉的不再采集，也不再上报')),
         for (final kind in Collector.kinds)
           SwitchListTile(
             title: Text(_kindLabels[kind] ?? kind),
@@ -636,11 +722,47 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
           ),
         const Divider(),
         ListTile(
+          title: Text('????????? ${_localLog.length} ??'),
+          subtitle: Text(
+            _localLog.isEmpty
+                ? '???????'
+                : _localLog
+                      .take(5)
+                      .map(
+                        (x) =>
+                            '${x['kind']} ${_time(x['observed_at'] as String? ?? '')}',
+                      )
+                      .join('?'),
+          ),
+        ),
+        ListTile(
+          title: const Text('????'),
+          subtitle: Text('? $_flushSeconds ?????????'),
+          trailing: DropdownButton<int>(
+            value: [60, 120, 300, 600].contains(_flushSeconds)
+                ? _flushSeconds
+                : 120,
+            items: const [60, 120, 300, 600]
+                .map((v) => DropdownMenuItem(value: v, child: Text('${v}s')))
+                .toList(),
+            onChanged: (v) {
+              if (v != null) _setFlushSeconds(v);
+            },
+          ),
+        ),
+        const Divider(),
+        ListTile(
           leading: Icon(
             _accessibility == true ? Icons.check_circle : Icons.error_outline,
             color: _accessibility == true ? Colors.green : Colors.orange,
           ),
-          title: Text('无障碍服务：${_accessibility == null ? '读取中' : _accessibility! ? '已开启' : '未开启'}'),
+          title: Text(
+            '无障碍服务：${_accessibility == null
+                ? '读取中'
+                : _accessibility!
+                ? '已开启'
+                : '未开启'}',
+          ),
           subtitle: const Text('解锁、亮灭屏和前台应用都靠它，只能手动开启'),
           trailing: TextButton(
             onPressed: Collector.openAccessibilitySettings,
@@ -648,15 +770,21 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
           ),
         ),
         ListTile(
-          title: Text('定位权限：${_permissions['location'] == true ? '已授予' : '未授予'}'),
-          subtitle: Text('通知权限：${_permissions['notification'] == true ? '已授予' : '未授予'}'),
+          title: Text(
+            '定位权限：${_permissions['location'] == true ? '已授予' : '未授予'}',
+          ),
+          subtitle: Text(
+            '通知权限：${_permissions['notification'] == true ? '已授予' : '未授予'}',
+          ),
           trailing: TextButton(
             onPressed: Collector.openAppSettings,
             child: const Text('去设置'),
           ),
         ),
         ListTile(
-          title: Text('使用情况访问：${_permissions['usage'] == true ? '已授予' : '未授予'}'),
+          title: Text(
+            '使用情况访问：${_permissions['usage'] == true ? '已授予' : '未授予'}',
+          ),
           subtitle: const Text('应用使用时长靠它，采集还没做'),
           trailing: TextButton(
             onPressed: Collector.openUsageSettings,
@@ -672,27 +800,54 @@ class _LocalDebugPageState extends State<_LocalDebugPage> with WidgetsBindingObs
           ),
         ),
         const Divider(),
-        ListTile(title: const Text('服务端看到的状态'), subtitle: Text('更新时间 ${_stateText('at')}')),
-        ListTile(dense: true, title: Text('手机活动：${_stateText('phone_activity')}')),
-        ListTile(dense: true, title: Text('电脑活动：${_stateText('computer_activity')}')),
-        ListTile(dense: true, title: Text('前台应用：${_stateText('foreground_app')}')),
+        ListTile(
+          title: const Text('服务端看到的状态'),
+          subtitle: Text('更新时间 ${_stateText('at')}'),
+        ),
+        ListTile(
+          dense: true,
+          title: Text('手机活动：${_stateText('phone_activity')}'),
+        ),
+        ListTile(
+          dense: true,
+          title: Text('电脑活动：${_stateText('computer_activity')}'),
+        ),
+        ListTile(
+          dense: true,
+          title: Text('前台应用：${_stateText('foreground_app')}'),
+        ),
         ListTile(dense: true, title: Text('位置：${_stateText('location')}')),
-        ListTile(dense: true, title: Text('网络：${_stateText('network')}，电量：${_stateText('battery')}')),
+        ListTile(
+          dense: true,
+          title: Text(
+            '网络：${_stateText('network')}，电量：${_stateText('battery')}',
+          ),
+        ),
         const Divider(),
         ListTile(
           title: const Text('服务端收到的信号'),
-          subtitle: Text(signals.isEmpty ? '还没有' : '最近 ${signals.length} 条：$summary'),
+          subtitle: Text(
+            signals.isEmpty ? '还没有' : '最近 ${signals.length} 条：$summary',
+          ),
         ),
         for (final signal in signals)
           ListTile(
             dense: true,
-            title: Text('${_kindLabels[signal.$1] ?? signal.$1}  ${_describe(signal.$1, signal.$3)}'),
-            subtitle: Text(_time(signal.$2), style: const TextStyle(fontSize: 11)),
+            title: Text(
+              '${_kindLabels[signal.$1] ?? signal.$1}  ${_describe(signal.$1, signal.$3)}',
+            ),
+            subtitle: Text(
+              _time(signal.$2),
+              style: const TextStyle(fontSize: 11),
+            ),
           ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.all(16),
-            child: Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+            child: Text(
+              _error!,
+              style: const TextStyle(color: Colors.redAccent),
+            ),
           ),
       ],
     );
