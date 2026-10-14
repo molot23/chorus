@@ -27,11 +27,13 @@ class ChatPage extends StatefulWidget {
     required this.api,
     required this.onOpenSettings,
     required this.onOpenConnection,
+    this.scrollController,
   });
 
   final ChorusApi api;
   final void Function(BuildContext context) onOpenSettings;
   final VoidCallback onOpenConnection;
+  final ScrollController? scrollController;
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -43,7 +45,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   bool _visible = true;
   bool _scrolling = false;
   final _input = TextEditingController();
-  final _scroll = ScrollController();
+  late final ScrollController _scroll;
+  late final bool _ownsScrollController;
 
   List<ChatMessage> _messages = [];
   var _loading = true;
@@ -56,6 +59,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _ownsScrollController = widget.scrollController == null;
+    _scroll = widget.scrollController ?? ScrollController();
     _refreshTimer = Timer.periodic(
       const Duration(seconds: 10),
       (_) => _refreshMessages(),
@@ -68,7 +73,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _refreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _input.dispose();
-    _scroll.dispose();
+    if (_ownsScrollController) _scroll.dispose();
     super.dispose();
   }
 
@@ -120,8 +125,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       if (_scroll.hasClients && _scroll.position.pixels >= 100) return;
       final nearEnd = !_scroll.hasClients || _scroll.position.pixels < 100;
       setState(() {
-        final ids = _messages.map((m) => m.id).toSet();
-        _messages = [..._messages, ...latest.where((m) => ids.add(m.id))];
+        final lastId = _messages.isEmpty ? 0 : _messages.last.id;
+        final unseen = latest
+            .where((m) => m.id > lastId)
+            .toList(growable: false);
+        if (unseen.isNotEmpty) _messages = [..._messages, ...unseen];
       });
       if (nearEnd) _scrollToEnd();
     } catch (_) {
