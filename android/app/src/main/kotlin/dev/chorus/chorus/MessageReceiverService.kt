@@ -3,24 +3,32 @@ package dev.chorus.chorus
 import android.app.*
 import android.content.*
 import android.os.*
+import android.hardware.*
 import org.json.JSONArray
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.TimeZone
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import javax.net.ssl.*
 
 /** Native worker: survives Flutter UI suspension. User-visible foreground notification. */
-class MessageReceiverService : Service() {
+class MessageReceiverService : Service(), SensorEventListener {
     private lateinit var worker: HandlerThread
     private lateinit var handler: Handler
     private var stopping = false
     private val settings by lazy { getSharedPreferences("message_receiver", MODE_PRIVATE) }
+    private val sensors by lazy { getSystemService(SENSOR_SERVICE) as SensorManager }
+    private var latestMotion: FloatArray? = null
+    private var latestMotionAt = 0L
     private val notices by lazy { getSystemService(NOTIFICATION_SERVICE) as NotificationManager }
     private val poll = object : Runnable {
         override fun run() {
             if (stopping) return
-            try { receiveMessages() } catch (_: Exception) { /* Leave cursor; retry later. */ }
-            if (!stopping) handler.postDelayed(this, 30_000L)
+            try { receiveMessages() } catch (_: Exception) { }
+            sampleMotion()
+            if (!stopping) handler.postDelayed(this, 300_000L)
         }
     }
     private val screen = object : BroadcastReceiver() {
@@ -52,6 +60,7 @@ class MessageReceiverService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onDestroy() {
         stopping = true; unregisterReceiver(screen)
+        sensors.unregisterListener(this)
         handler.removeCallbacksAndMessages(null); worker.quitSafely()
         super.onDestroy()
     }
@@ -62,15 +71,24 @@ class MessageReceiverService : Service() {
         Intent(this, MainActivity::class.java).putExtra("chorus_message", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-    private fun receiveMessages() {
-        val host = settings.getString("host", "") ?: ""
-        val token = settings.getString("token", "") ?: ""
-        if (host.isBlank() || token.isBlank()) return
-        val account = digest((host + "\n" + token).toByteArray())
-        val cursorKey = "cursor:$account"
-        val connection = URL(host.trimEnd('/') + "/api/messages").openConnection() as java.net.HttpURLConnection
-        connection.connectTimeout = 15_000; connection.readTimeout = 15_000
-        connection.setRequestProperty("Authorization", "Bearer $token")
+    private fun sampleMotion() {
+        val sensor = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) ?: return
+        latestMotion = null
+        sensors.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL, handler)
+        handler.postDelayed({ sensors.unregisterListener(this) }, 2_000L)
+    }
+
+    override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor.type == Sensor.TYPE_ACCELEROMETER && event.values.size >= 3) {
+            latestMotion = floatArrayOf(event.values[0], event.values[1], event.values[2])
+            latestMotionAt = System.currentTimeMillis()
+            sensors.unregisterListener(this)
+            try { sendMotion() } catch (_: Exception) { }
+        }
+    }
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    private fun configureTls(connection: java.net.HttpURLConnection) {
         // The configured server uses a self-signed leaf. Trust only this SSH-verified pin.
         // Other servers keep normal platform TLS validation.
         if (connection is HttpsURLConnection && connection.url.host == "47.109.58.185") {
@@ -88,6 +106,35 @@ class MessageReceiverService : Service() {
                 hostName == "47.109.58.185" && digest(session.peerCertificates[0].encoded) == SERVER_PIN
             }
         }
+    }
+
+    private fun sendMotion() {
+        val values = latestMotion ?: return
+        val at = latestMotionAt
+        if (at <= 0L) return
+        val host = settings.getString("host", "") ?: ""
+        val token = settings.getString("token", "") ?: ""
+        if (host.isBlank() || token.isBlank()) return
+        val connection = URL(host.trimEnd('/') + "/api/signal").openConnection() as java.net.HttpURLConnection
+        connection.connectTimeout = 15_000; connection.readTimeout = 15_000; connection.requestMethod = "POST"
+        configureTls(connection)
+        connection.doOutput = true; connection.setRequestProperty("Authorization", "Bearer $token"); connection.setRequestProperty("Content-Type", "application/json")
+        val id = "motion-native:$at"
+        val body = "{\"observed_at\":\"${SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date(at))}\",\"kind\":\"motion\",\"source\":\"phone_native\",\"event_id\":\"$id\",\"data\":{\"x\":${values[0]},\"y\":${values[1]},\"z\":${values[2]},\"magnitude\":${Math.sqrt((values[0]*values[0]+values[1]*values[1]+values[2]*values[2]).toDouble())},\"sampling_period_sec\":300}}"
+        connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        connection.inputStream.close(); connection.disconnect()
+    }
+
+    private fun receiveMessages() {
+        val host = settings.getString("host", "") ?: ""
+        val token = settings.getString("token", "") ?: ""
+        if (host.isBlank() || token.isBlank()) return
+        val account = digest((host + "\n" + token).toByteArray())
+        val cursorKey = "cursor:$account"
+        val connection = URL(host.trimEnd('/') + "/api/messages?limit=80").openConnection() as java.net.HttpURLConnection
+        connection.connectTimeout = 15_000; connection.readTimeout = 15_000
+        connection.setRequestProperty("Authorization", "Bearer $token")
+        configureTls(connection)
         try {
             if (connection.responseCode != 200) return
             val rows = JSONArray(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })

@@ -8,7 +8,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sensors_plus/sensors_plus.dart';
 
 import 'api.dart';
 import 'signal_queue.dart';
@@ -32,6 +31,8 @@ class Collector with WidgetsBindingObserver {
   final _subscriptions = <StreamSubscription<dynamic>>[];
   final _timers = <Timer>[];
   String _lastApp = '';
+  int? _lastBattery;
+  BatteryState? _lastBatteryState;
 
   /// 每一种信号的上报开关，存在本机，默认都开。
   static const kinds = [
@@ -49,7 +50,7 @@ class Collector with WidgetsBindingObserver {
   /// 某种信号是否允许上报。
   static Future<bool> enabled(String kind) async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('collect_$kind') ?? true;
+    return prefs.getBool('collect_$kind') ?? (kind != 'location');
   }
 
   /// 改某种信号的上报开关。关掉后不再采集，也不再上报。
@@ -62,7 +63,8 @@ class Collector with WidgetsBindingObserver {
   static Future<Map<String, bool>> switches() async {
     final prefs = await SharedPreferences.getInstance();
     return {
-      for (final kind in kinds) kind: prefs.getBool('collect_$kind') ?? true,
+      for (final kind in kinds)
+        kind: prefs.getBool('collect_$kind') ?? (kind != 'location'),
     };
   }
 
@@ -119,7 +121,6 @@ class Collector with WidgetsBindingObserver {
       );
     }
 
-    _startMotion();
     _startLocation();
     _startBattery();
     _startNetwork();
@@ -133,30 +134,8 @@ class Collector with WidgetsBindingObserver {
     _timers.add(Timer.periodic(const Duration(minutes: 2), (_) => flush()));
   }
 
-  void _startMotion() {
-    _subscriptions.add(
-      accelerometerEventStream(
-        samplingPeriod: const Duration(seconds: 30),
-      ).listen((event) {
-        unawaited(_recordMotion(event));
-      }, onError: (Object _) {}),
-    );
-  }
-
-  Future<void> _recordMotion(AccelerometerEvent event) async {
-    if (!await enabled('motion')) return;
-    final magnitude =
-        (event.x * event.x + event.y * event.y + event.z * event.z).toDouble();
-    await _record('motion', {
-      'x': event.x,
-      'y': event.y,
-      'z': event.z,
-      'magnitude': magnitude,
-      'sampling_period_sec': 30,
-    });
-  }
-
   Future<void> _startLocation() async {
+    if (!await enabled('location')) return;
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -172,6 +151,7 @@ class Collector with WidgetsBindingObserver {
   }
 
   Future<void> _locate() async {
+    if (!await enabled('location')) return;
     try {
       final position = await Geolocator.getCurrentPosition();
       _saveLocation(position);
@@ -198,6 +178,9 @@ class Collector with WidgetsBindingObserver {
     if (!await enabled('battery')) return;
     final level = await battery.batteryLevel;
     final state = await battery.batteryState;
+    if (level == _lastBattery && state == _lastBatteryState) return;
+    _lastBattery = level;
+    _lastBatteryState = state;
     _record('battery', {
       'level': level,
       'charging': state == BatteryState.charging,
@@ -224,11 +207,6 @@ class Collector with WidgetsBindingObserver {
     await settings.load();
     final collector = Collector(settings);
     await collector._locate();
-    await collector._recordMotion(
-      await accelerometerEventStream(
-        samplingPeriod: const Duration(seconds: 1),
-      ).first,
-    );
     await collector._recordBattery(Battery());
     await collector._reportDevice();
     await collector.flush();

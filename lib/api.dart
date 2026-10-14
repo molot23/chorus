@@ -72,8 +72,8 @@ class ChorusApi {
 
   Future<List<ChatMessage>> messages({int? afterId}) async {
     final uri = afterId == null
-        ? _uri('/api/messages')
-        : _uri('/api/messages?after_id=$afterId');
+        ? _uri('/api/messages?limit=80')
+        : _uri('/api/messages?after_id=$afterId&limit=100');
     final response = await _client.get(uri, headers: _headers);
     if (response.statusCode != 200) {
       _fail(response);
