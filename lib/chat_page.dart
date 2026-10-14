@@ -129,7 +129,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         final unseen = latest
             .where((m) => m.id > lastId)
             .toList(growable: false);
-        if (unseen.isNotEmpty) _messages = [..._messages, ...unseen];
+        if (unseen.isNotEmpty) {
+          _messages.addAll(unseen);
+          // 内存里只留最近 500 条，更早的仍在服务器上
+          if (_messages.length > 500) {
+            _messages.removeRange(0, _messages.length - 500);
+          }
+        }
       });
       if (nearEnd) _scrollToEnd();
     } catch (_) {
