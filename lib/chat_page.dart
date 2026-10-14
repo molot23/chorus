@@ -41,6 +41,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Timer? _refreshTimer;
   bool _refreshing = false;
   bool _visible = true;
+  bool _scrolling = false;
   final _input = TextEditingController();
   final _scroll = ScrollController();
 
@@ -100,15 +101,24 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   Future<void> _refreshMessages() async {
-    if (!mounted || !_visible || _sending || _loading || _refreshing) return;
+    if (!mounted ||
+        !_visible ||
+        _sending ||
+        _loading ||
+        _refreshing ||
+        _scrolling) {
+      return;
+    }
+    if (_scroll.hasClients && _scroll.position.pixels >= 100) return;
     if (_messages.isEmpty) return _load();
     _refreshing = true;
     try {
       final latest = await widget.api
           .messages(afterId: _messages.last.id)
           .timeout(const Duration(seconds: 20));
-      if (!mounted || _sending || latest.isEmpty) return;
-      final nearEnd = !_scroll.hasClients || _scroll.position.extentAfter < 100;
+      if (!mounted || _sending || _scrolling || latest.isEmpty) return;
+      if (_scroll.hasClients && _scroll.position.pixels >= 100) return;
+      final nearEnd = !_scroll.hasClients || _scroll.position.pixels < 100;
       setState(() {
         final ids = _messages.map((m) => m.id).toSet();
         _messages = [..._messages, ...latest.where((m) => ids.add(m.id))];
@@ -123,8 +133,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
-        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      if (mounted && !_scrolling && _scroll.hasClients) {
+        _scroll.jumpTo(0);
       }
     });
   }
@@ -201,6 +211,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       case 'speaking':
         setState(() => _status = '${event.speaker} 正在说……');
       case 'message':
+        final follow =
+            !_scroll.hasClients ||
+            (!_scrolling && _scroll.position.pixels < 100);
         setState(() {
           _messages = [
             ..._messages,
@@ -213,7 +226,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             ),
           ];
         });
-        _scrollToEnd();
+        if (follow) _scrollToEnd();
       case 'error':
         setState(() {
           _messages = [
@@ -297,18 +310,34 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         child: Text('还没有消息，跟她们打个招呼吧', style: TextStyle(color: Colors.grey)),
       );
     }
-    return ListView.builder(
-      controller: _scroll,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      itemCount: _messages.length,
-      itemBuilder: (context, index) =>
-          _Bubble(message: _messages[index], debug: _debug),
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification is ScrollStartNotification) _scrolling = true;
+        if (notification is ScrollEndNotification) _scrolling = false;
+        return false;
+      },
+      child: ListView.builder(
+        key: const PageStorageKey('chat-messages'),
+        controller: _scroll,
+        reverse: true,
+        addAutomaticKeepAlives: false,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        itemCount: _messages.length,
+        itemBuilder: (context, index) {
+          final message = _messages[_messages.length - 1 - index];
+          return _Bubble(
+            key: message.id > 0 ? ValueKey(message.id) : ObjectKey(message),
+            message: message,
+            debug: _debug,
+          );
+        },
+      ),
     );
   }
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.message, required this.debug});
+  const _Bubble({super.key, required this.message, required this.debug});
 
   final ChatMessage message;
   final bool debug;
