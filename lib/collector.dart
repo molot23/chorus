@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:battery_plus/battery_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -24,6 +25,7 @@ class Collector with WidgetsBindingObserver {
   static const _deviceChannel = MethodChannel('dev.chorus.chorus/device');
   static const _lastWakeKey = 'last_wake_ms';
   static const _lastInteractionKey = 'last_interaction_ms';
+  static const _localLogKey = 'local_collection_log';
   static const _wakeQuietHours = 4 * 60 * 60 * 1000;
   static const _wakeCooldown = 20 * 60 * 60 * 1000;
   var _started = false;
@@ -308,13 +310,28 @@ class Collector with WidgetsBindingObserver {
     String source = 'phone',
   }) async {
     if (_disposed) return;
+    final at = observedAt ?? DateTime.now();
     await SignalQueue.shared.enqueue(
       kind,
       data,
-      observedAt: observedAt,
+      observedAt: at,
       eventId: eventId,
       source: source,
     );
+    final prefs = await SharedPreferences.getInstance();
+    final log = List<String>.of(prefs.getStringList(_localLogKey) ?? [])
+      ..add(
+        jsonEncode({
+          'kind': kind,
+          'observed_at': at.toUtc().toIso8601String(),
+          'saved_at': DateTime.now().toUtc().toIso8601String(),
+          'upload': 'pending',
+        }),
+      );
+    while (log.length > 200) {
+      log.removeAt(0);
+    }
+    await prefs.setStringList(_localLogKey, log);
   }
 
   Future<void> flush() async {
